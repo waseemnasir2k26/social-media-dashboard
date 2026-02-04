@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
   CheckCircle,
-  XCircle,
   Send,
   Clock,
   Twitter,
@@ -46,19 +45,6 @@ export default function ApprovalQueue() {
       setLoading(false);
     }
   }
-
-  const handleApprove = async (post: Post) => {
-    setActionLoading(post.id);
-    try {
-      await postsApi.approve(post.id);
-      toast.success('Post approved!');
-      loadPosts();
-    } catch (error) {
-      toast.error('Failed to approve post');
-    } finally {
-      setActionLoading(null);
-    }
-  };
 
   const handlePublishNow = async (post: Post) => {
     setActionLoading(post.id);
