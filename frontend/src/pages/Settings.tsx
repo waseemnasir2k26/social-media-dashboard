@@ -83,7 +83,7 @@ export default function Settings() {
     }
 
     loadStatus();
-  }, []);
+  }, [searchParams, setSearchParams]);
 
   async function loadStatus() {
     try {
