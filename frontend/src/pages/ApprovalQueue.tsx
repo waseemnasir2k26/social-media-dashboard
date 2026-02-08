@@ -53,11 +53,17 @@ export default function ApprovalQueue() {
       if (result.success) {
         toast.success('Post published successfully!');
       } else {
-        toast.error('Some platforms failed. Check post history for details.');
+        const errorMsg = result.post?.error_message || 'Some platforms failed';
+        toast.error(errorMsg);
       }
       loadPosts();
-    } catch (error) {
-      toast.error('Failed to publish post');
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Failed to publish post';
+      if (errorMessage.includes('not connected') || errorMessage.includes('not configured')) {
+        toast.error('No platforms connected. Configure platforms in Settings first.');
+      } else {
+        toast.error(errorMessage);
+      }
     } finally {
       setActionLoading(null);
     }

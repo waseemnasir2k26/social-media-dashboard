@@ -573,6 +573,9 @@ async def get_platform_status():
         "instagram": bool(OAUTH_CONFIG["facebook"]["client_id"]),  # Uses Facebook OAuth
     }
 
+    # Check OpenAI configuration
+    openai_configured = bool(os.environ.get("OPENAI_API_KEY"))
+
     return {
         "platforms": {
             "linkedin": {
@@ -592,7 +595,8 @@ async def get_platform_status():
                 "connected": tokens.get("instagram", {}).get("connected", False),
                 "oauth_configured": oauth_configured["instagram"],
             },
-        }
+        },
+        "openai_configured": openai_configured,
     }
 
 

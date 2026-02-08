@@ -113,7 +113,7 @@ export const postsApi = {
 
 // Platforms API
 export const platformsApi = {
-  async getStatus(): Promise<{ platforms: PlatformStatus; summary: { configured: number; total: number } }> {
+  async getStatus(): Promise<{ platforms: PlatformStatus; openai_configured: boolean; summary?: { configured: number; total: number } }> {
     const response = await api.get('/platforms/status');
     return response.data;
   },

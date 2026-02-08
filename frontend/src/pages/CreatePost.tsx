@@ -71,8 +71,13 @@ export default function CreatePost() {
         setImagePrompt(result.generation_result.image_prompt || '');
         toast.success('Content generated! Review and edit as needed.');
       }
-    } catch (error) {
-      toast.error('Failed to generate content');
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Failed to generate content';
+      if (errorMessage.includes('OpenAI API key')) {
+        toast.error('OpenAI API key not configured. Add OPENAI_API_KEY in Vercel settings.');
+      } else {
+        toast.error(errorMessage);
+      }
       console.error(error);
     } finally {
       setGenerating(false);
@@ -92,8 +97,13 @@ export default function CreatePost() {
         setImageUrl(result.image_url);
         toast.success('Image generated!');
       }
-    } catch (error) {
-      toast.error('Failed to generate image');
+    } catch (error: any) {
+      const errorMessage = error.response?.data?.detail || 'Failed to generate image';
+      if (errorMessage.includes('OpenAI API key')) {
+        toast.error('OpenAI API key not configured. Add OPENAI_API_KEY in Vercel settings.');
+      } else {
+        toast.error(errorMessage);
+      }
       console.error(error);
     } finally {
       setGeneratingImage(false);

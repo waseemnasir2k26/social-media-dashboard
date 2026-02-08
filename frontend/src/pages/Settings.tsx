@@ -63,6 +63,7 @@ const platformConfig = [
 export default function Settings() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [platformStatus, setPlatformStatus] = useState<PlatformStatus | null>(null);
+  const [openaiConfigured, setOpenaiConfigured] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState<string | null>(null);
 
@@ -89,6 +90,7 @@ export default function Settings() {
     try {
       const result = await api.get('/platforms/status');
       setPlatformStatus(result.data.platforms);
+      setOpenaiConfigured(result.data.openai_configured || false);
     } catch (error) {
       console.error('Failed to load platform status:', error);
     } finally {
@@ -297,7 +299,34 @@ export default function Settings() {
 
       {/* OpenAI Settings */}
       <div className="card mt-8">
-        <h2 className="text-lg font-semibold mb-4">OpenAI Configuration</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">OpenAI Configuration</h2>
+          {openaiConfigured ? (
+            <span className="flex items-center gap-1 text-green-600 text-sm font-medium">
+              <CheckCircle className="w-4 h-4" />
+              Configured
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 text-red-500 text-sm font-medium">
+              <XCircle className="w-4 h-4" />
+              Not Configured
+            </span>
+          )}
+        </div>
+        {!openaiConfigured && (
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+            <div className="flex gap-3">
+              <Info className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <div className="text-sm text-red-800">
+                <p className="font-medium mb-1">OpenAI API Key Required</p>
+                <p>
+                  Content generation and image creation require an OpenAI API key.
+                  Add the OPENAI_API_KEY environment variable to enable these features.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="bg-gray-50 rounded-lg p-4 font-mono text-sm">
           <div className="text-gray-700">OPENAI_API_KEY=sk-your-api-key</div>
         </div>
