@@ -1,23 +1,24 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from mangum import Mangum
+import json
 
-app = FastAPI()
+def handler(request, context=None):
+    path = request.get("path", "/api")
+    method = request.get("method", "GET")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    # Route handling
+    if path == "/api" or path == "/api/":
+        body = {"status": "running", "message": "Social Media Dashboard API"}
+    elif path == "/api/health":
+        body = {"status": "healthy"}
+    else:
+        body = {"error": "Not found", "path": path}
 
-@app.get("/api")
-async def root():
-    return {"status": "running", "message": "Social Media Dashboard API"}
-
-@app.get("/api/health")
-async def health():
-    return {"status": "healthy"}
-
-handler = Mangum(app, lifespan="off")
+    return {
+        "statusCode": 200,
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "*"
+        },
+        "body": json.dumps(body)
+    }
