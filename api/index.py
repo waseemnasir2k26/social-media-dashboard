@@ -13,19 +13,27 @@ import base64
 import hashlib
 import asyncio
 
-# Supabase
-from supabase import create_client, Client
+# Supabase (optional)
+try:
+    from supabase import create_client, Client
+    SUPABASE_AVAILABLE = True
+except ImportError:
+    SUPABASE_AVAILABLE = False
+    Client = None
 
 # Initialize FastAPI
 app = FastAPI(title="Social Media Dashboard API - Simple Posting Tool")
 
-# Initialize Supabase (if configured)
+# Initialize Supabase (if configured and available)
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
-supabase: Optional[Client] = None
+supabase: Optional[Any] = None
 
-if SUPABASE_URL and SUPABASE_KEY:
-    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+if SUPABASE_AVAILABLE and SUPABASE_URL and SUPABASE_KEY:
+    try:
+        supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+    except Exception as e:
+        print(f"Failed to initialize Supabase: {e}")
 
 # Get base URL for callbacks
 BASE_URL = os.environ.get("VERCEL_URL", "")
