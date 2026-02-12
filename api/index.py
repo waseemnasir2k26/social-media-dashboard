@@ -13,8 +13,19 @@ import base64
 import hashlib
 import asyncio
 
+# Supabase
+from supabase import create_client, Client
+
 # Initialize FastAPI
 app = FastAPI(title="Social Media Dashboard API - Simple Posting Tool")
+
+# Initialize Supabase (if configured)
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+supabase: Optional[Client] = None
+
+if SUPABASE_URL and SUPABASE_KEY:
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # Get base URL for callbacks
 BASE_URL = os.environ.get("VERCEL_URL", "")
@@ -34,19 +45,45 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ============ Simple Token Storage ============
-# In production, use Vercel KV, Supabase, or Postgres
-# For now, using environment variables + in-memory cache
+# ============ Token & Post Storage ============
+# Uses Supabase if configured, otherwise falls back to in-memory
 
 tokens_cache: Dict[str, Dict[str, Any]] = {}
-posts_db: Dict[int, dict] = {}
+posts_cache: Dict[int, dict] = {}
 post_counter = 0
 
 def get_stored_tokens() -> Dict[str, Any]:
-    """Get tokens from cache or environment."""
+    """Get tokens from Supabase, cache, or environment."""
     global tokens_cache
 
-    # Check cache first
+    # Try Supabase first
+    if supabase:
+        try:
+            result = supabase.table("platform_tokens").select("*").execute()
+            tokens = {}
+            for row in result.data:
+                platform = row["platform"]
+                tokens[platform] = {
+                    "access_token": row.get("access_token", ""),
+                    "refresh_token": row.get("refresh_token", ""),
+                    "account_id": row.get("account_id", ""),
+                    "account_name": row.get("account_name", ""),
+                    "page_id": row.get("page_id", ""),
+                    "page_name": row.get("page_name", ""),
+                    "connected": bool(row.get("access_token")),
+                }
+
+            # Fill in missing platforms with defaults
+            all_platforms = ["linkedin", "twitter", "facebook", "instagram_1", "instagram_2", "youtube"]
+            for p in all_platforms:
+                if p not in tokens:
+                    tokens[p] = {"connected": False}
+
+            return tokens
+        except Exception as e:
+            print(f"Supabase error: {e}")
+
+    # Check memory cache
     if tokens_cache:
         return tokens_cache
 
@@ -87,9 +124,42 @@ def get_stored_tokens() -> Dict[str, Any]:
     }
 
 def save_token(platform: str, token_data: Dict[str, Any]):
-    """Save token to cache."""
+    """Save token to Supabase or cache."""
     global tokens_cache
+
+    # Save to Supabase if configured
+    if supabase:
+        try:
+            data = {
+                "platform": platform,
+                "access_token": token_data.get("access_token"),
+                "refresh_token": token_data.get("refresh_token"),
+                "account_id": token_data.get("account_id"),
+                "account_name": token_data.get("account_name"),
+                "page_id": token_data.get("page_id"),
+                "page_name": token_data.get("page_name"),
+                "updated_at": datetime.utcnow().isoformat(),
+            }
+            # Upsert (insert or update)
+            supabase.table("platform_tokens").upsert(data, on_conflict="platform").execute()
+        except Exception as e:
+            print(f"Supabase save error: {e}")
+
+    # Also update cache
     tokens_cache[platform] = {**token_data, "connected": True}
+
+def delete_token(platform: str):
+    """Delete token from Supabase and cache."""
+    global tokens_cache
+
+    if supabase:
+        try:
+            supabase.table("platform_tokens").delete().eq("platform", platform).execute()
+        except Exception as e:
+            print(f"Supabase delete error: {e}")
+
+    if platform in tokens_cache:
+        del tokens_cache[platform]
 
 
 # ============ OAuth Configuration ============
@@ -363,9 +433,7 @@ async def oauth_callback(platform: str, code: str = None, state: str = None, err
 @app.post("/api/auth/{platform}/disconnect")
 async def oauth_disconnect(platform: str):
     """Disconnect a platform."""
-    global tokens_cache
-    if platform in tokens_cache:
-        del tokens_cache[platform]
+    delete_token(platform)
     return {"success": True, "message": f"{platform} disconnected"}
 
 
@@ -664,10 +732,8 @@ async def get_platform_status():
 @app.post("/api/posts")
 async def create_post(request: CreatePostRequest):
     global post_counter
-    post_counter += 1
 
-    post = {
-        "id": post_counter,
+    post_data = {
         "content": request.content,
         "image_url": request.image_url,
         "video_url": request.video_url,
@@ -675,13 +741,29 @@ async def create_post(request: CreatePostRequest):
         "status": "scheduled" if request.scheduled_time else "draft",
         "scheduled_time": request.scheduled_time,
         "posted_ids": {},
+        "word_count": len(request.content.split()),
+    }
+
+    # Save to Supabase if configured
+    if supabase:
+        try:
+            result = supabase.table("posts").insert(post_data).execute()
+            post = result.data[0]
+            return {"success": True, "post": post}
+        except Exception as e:
+            print(f"Supabase insert error: {e}")
+
+    # Fallback to memory
+    post_counter += 1
+    post = {
+        "id": post_counter,
+        **post_data,
         "posted_time": None,
         "error_message": None,
-        "word_count": len(request.content.split()),
         "created_at": datetime.utcnow().isoformat(),
         "updated_at": datetime.utcnow().isoformat(),
     }
-    posts_db[post_counter] = post
+    posts_cache[post_counter] = post
 
     return {"success": True, "post": post}
 
@@ -692,7 +774,20 @@ async def list_posts(
     limit: int = Query(default=50, le=100),
     offset: int = 0
 ):
-    posts = list(posts_db.values())
+    # Try Supabase first
+    if supabase:
+        try:
+            query = supabase.table("posts").select("*").order("created_at", desc=True)
+            if status:
+                query = query.eq("status", status)
+            query = query.range(offset, offset + limit - 1)
+            result = query.execute()
+            return {"posts": result.data, "total": len(result.data)}
+        except Exception as e:
+            print(f"Supabase list error: {e}")
+
+    # Fallback to memory
+    posts = list(posts_cache.values())
 
     if status:
         posts = [p for p in posts if p["status"] == status]
@@ -705,43 +800,83 @@ async def list_posts(
 
 @app.get("/api/posts/{post_id}")
 async def get_post(post_id: int):
-    if post_id not in posts_db:
+    # Try Supabase first
+    if supabase:
+        try:
+            result = supabase.table("posts").select("*").eq("id", post_id).execute()
+            if result.data:
+                return {"post": result.data[0]}
+            raise HTTPException(status_code=404, detail="Post not found")
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Supabase get error: {e}")
+
+    # Fallback to memory
+    if post_id not in posts_cache:
         raise HTTPException(status_code=404, detail="Post not found")
-    return {"post": posts_db[post_id]}
+    return {"post": posts_cache[post_id]}
 
 
 @app.patch("/api/posts/{post_id}")
 async def update_post(post_id: int, request: UpdatePostRequest):
-    if post_id not in posts_db:
+    update_data = {}
+    if request.content is not None:
+        update_data["content"] = request.content
+        update_data["word_count"] = len(request.content.split())
+    if request.image_url is not None:
+        update_data["image_url"] = request.image_url
+    if request.video_url is not None:
+        update_data["video_url"] = request.video_url
+    if request.platforms is not None:
+        update_data["platforms"] = request.platforms
+    if request.status is not None:
+        update_data["status"] = request.status
+    if request.scheduled_time is not None:
+        update_data["scheduled_time"] = request.scheduled_time
+
+    update_data["updated_at"] = datetime.utcnow().isoformat()
+
+    # Try Supabase first
+    if supabase:
+        try:
+            result = supabase.table("posts").update(update_data).eq("id", post_id).execute()
+            if result.data:
+                return {"success": True, "post": result.data[0]}
+            raise HTTPException(status_code=404, detail="Post not found")
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Supabase update error: {e}")
+
+    # Fallback to memory
+    if post_id not in posts_cache:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    post = posts_db[post_id]
-
-    if request.content is not None:
-        post["content"] = request.content
-        post["word_count"] = len(request.content.split())
-    if request.image_url is not None:
-        post["image_url"] = request.image_url
-    if request.video_url is not None:
-        post["video_url"] = request.video_url
-    if request.platforms is not None:
-        post["platforms"] = request.platforms
-    if request.status is not None:
-        post["status"] = request.status
-    if request.scheduled_time is not None:
-        post["scheduled_time"] = request.scheduled_time
-
-    post["updated_at"] = datetime.utcnow().isoformat()
+    post = posts_cache[post_id]
+    post.update(update_data)
 
     return {"success": True, "post": post}
 
 
 @app.post("/api/posts/{post_id}/publish")
 async def publish_post(post_id: int):
-    if post_id not in posts_db:
+    # Get post from Supabase or memory
+    post = None
+    if supabase:
+        try:
+            result = supabase.table("posts").select("*").eq("id", post_id).execute()
+            if result.data:
+                post = result.data[0]
+        except Exception as e:
+            print(f"Supabase get error: {e}")
+
+    if not post and post_id in posts_cache:
+        post = posts_cache[post_id]
+
+    if not post:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    post = posts_db[post_id]
     content = post["content"]
     platforms = post["platforms"]
     image_url = post.get("image_url")
@@ -765,38 +900,67 @@ async def publish_post(post_id: int):
 
     all_success = all(r.get("success", False) for r in results.values()) if results else False
 
+    update_data = {"updated_at": datetime.utcnow().isoformat()}
+
     if all_success:
-        post["status"] = "posted"
-        post["posted_time"] = datetime.utcnow().isoformat()
-        post["posted_ids"] = {p: r.get("post_id", "") for p, r in results.items()}
+        update_data["status"] = "posted"
+        update_data["posted_time"] = datetime.utcnow().isoformat()
+        update_data["posted_ids"] = {p: r.get("post_id", "") for p, r in results.items()}
     else:
         errors = [f"{p}: {r.get('error')}" for p, r in results.items() if not r.get("success")]
-        post["error_message"] = "; ".join(errors) if errors else "No platforms configured"
+        update_data["error_message"] = "; ".join(errors) if errors else "No platforms configured"
         if any(r.get("success") for r in results.values()):
-            post["status"] = "posted"
-            post["posted_time"] = datetime.utcnow().isoformat()
-            post["posted_ids"] = {p: r.get("post_id", "") for p, r in results.items() if r.get("success")}
+            update_data["status"] = "posted"
+            update_data["posted_time"] = datetime.utcnow().isoformat()
+            update_data["posted_ids"] = {p: r.get("post_id", "") for p, r in results.items() if r.get("success")}
         else:
-            post["status"] = "failed"
+            update_data["status"] = "failed"
 
-    post["updated_at"] = datetime.utcnow().isoformat()
+    # Update in Supabase or memory
+    if supabase:
+        try:
+            result = supabase.table("posts").update(update_data).eq("id", post_id).execute()
+            if result.data:
+                post = result.data[0]
+        except Exception as e:
+            print(f"Supabase update error: {e}")
+            post.update(update_data)
+    else:
+        post.update(update_data)
 
     return {"success": all_success, "post": post, "platform_results": results}
 
 
 @app.delete("/api/posts/{post_id}")
 async def delete_post(post_id: int):
-    if post_id not in posts_db:
+    # Try Supabase first
+    if supabase:
+        try:
+            result = supabase.table("posts").delete().eq("id", post_id).execute()
+            return {"success": True, "message": "Post deleted"}
+        except Exception as e:
+            print(f"Supabase delete error: {e}")
+
+    # Fallback to memory
+    if post_id not in posts_cache:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    del posts_db[post_id]
+    del posts_cache[post_id]
     return {"success": True, "message": "Post deleted"}
 
 
 @app.get("/api/platforms/scheduler/jobs")
 async def get_scheduler_jobs():
-    # Return scheduled posts
-    scheduled = [p for p in posts_db.values() if p["status"] == "scheduled"]
+    # Try Supabase first
+    if supabase:
+        try:
+            result = supabase.table("posts").select("*").eq("status", "scheduled").execute()
+            return {"jobs": result.data, "total": len(result.data)}
+        except Exception as e:
+            print(f"Supabase scheduler error: {e}")
+
+    # Fallback to memory
+    scheduled = [p for p in posts_cache.values() if p["status"] == "scheduled"]
     return {"jobs": scheduled, "total": len(scheduled)}
 
 

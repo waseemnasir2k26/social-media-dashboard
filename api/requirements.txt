@@ -2,3 +2,4 @@ fastapi==0.109.0
 mangum==0.17.0
 httpx==0.26.0
 pydantic==2.6.0
+supabase==2.3.4
