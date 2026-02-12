@@ -1,24 +1,17 @@
-import json
+from flask import Flask, jsonify, request
+from flask_cors import CORS
 
-def handler(request, context=None):
-    path = request.get("path", "/api")
-    method = request.get("method", "GET")
+app = Flask(__name__)
+CORS(app)
 
-    # Route handling
-    if path == "/api" or path == "/api/":
-        body = {"status": "running", "message": "Social Media Dashboard API"}
-    elif path == "/api/health":
-        body = {"status": "healthy"}
-    else:
-        body = {"error": "Not found", "path": path}
+@app.route('/api')
+@app.route('/api/')
+def root():
+    return jsonify({"status": "running", "message": "Social Media Dashboard API"})
 
-    return {
-        "statusCode": 200,
-        "headers": {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-            "Access-Control-Allow-Headers": "*"
-        },
-        "body": json.dumps(body)
-    }
+@app.route('/api/health')
+def health():
+    return jsonify({"status": "healthy"})
+
+if __name__ == '__main__':
+    app.run(debug=True)
