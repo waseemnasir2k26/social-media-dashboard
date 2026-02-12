@@ -10,10 +10,13 @@ import {
   CheckCircle,
   XCircle,
   ExternalLink,
-  Info,
   Link2,
   Unlink,
   Loader2,
+  Save,
+  Eye,
+  EyeOff,
+  Key,
 } from 'lucide-react';
 import api from '../services/api';
 
@@ -33,27 +36,19 @@ interface PlatformStatus {
   youtube: PlatformInfo;
 }
 
+interface Credentials {
+  [key: string]: { client_id: string; configured: boolean };
+}
+
 const platformConfig = [
   {
     id: 'facebook',
-    name: 'Facebook Page',
+    name: 'Facebook & Instagram',
     icon: Facebook,
     color: 'bg-blue-600',
-    description: 'Post to your Facebook Page',
-  },
-  {
-    id: 'instagram_1',
-    name: 'Instagram Account 1',
-    icon: Instagram,
-    color: 'bg-gradient-to-r from-purple-500 to-pink-500',
-    description: 'Your first Instagram Business account',
-  },
-  {
-    id: 'instagram_2',
-    name: 'Instagram Account 2',
-    icon: Instagram,
-    color: 'bg-gradient-to-r from-pink-500 to-orange-500',
-    description: 'Your second Instagram Business account',
+    description: 'Connects Facebook Page + Instagram accounts',
+    docsUrl: 'https://developers.facebook.com/',
+    envPrefix: 'FACEBOOK',
   },
   {
     id: 'twitter',
@@ -61,6 +56,8 @@ const platformConfig = [
     icon: Twitter,
     color: 'bg-black',
     description: 'Tweet to your account',
+    docsUrl: 'https://developer.twitter.com/en/portal/dashboard',
+    envPrefix: 'TWITTER',
   },
   {
     id: 'youtube',
@@ -68,6 +65,8 @@ const platformConfig = [
     icon: Youtube,
     color: 'bg-red-600',
     description: 'Upload videos to your channel',
+    docsUrl: 'https://console.cloud.google.com/',
+    envPrefix: 'YOUTUBE',
   },
   {
     id: 'linkedin',
@@ -75,17 +74,30 @@ const platformConfig = [
     icon: Linkedin,
     color: 'bg-blue-700',
     description: 'Post to your LinkedIn profile',
+    docsUrl: 'https://www.linkedin.com/developers/apps',
+    envPrefix: 'LINKEDIN',
   },
 ];
 
 export default function Settings() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [platformStatus, setPlatformStatus] = useState<PlatformStatus | null>(null);
+  const [credentials, setCredentials] = useState<Credentials>({});
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState<string | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+
+  // Form state for each platform
+  const [formData, setFormData] = useState<Record<string, { client_id: string; client_secret: string }>>({
+    facebook: { client_id: '', client_secret: '' },
+    twitter: { client_id: '', client_secret: '' },
+    youtube: { client_id: '', client_secret: '' },
+    linkedin: { client_id: '', client_secret: '' },
+  });
+
+  const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
-    // Handle OAuth callback messages
     const connected = searchParams.get('connected');
     const error = searchParams.get('error');
 
@@ -101,6 +113,7 @@ export default function Settings() {
     }
 
     loadStatus();
+    loadCredentials();
   }, [searchParams, setSearchParams]);
 
   async function loadStatus() {
@@ -114,6 +127,48 @@ export default function Settings() {
     }
   }
 
+  async function loadCredentials() {
+    try {
+      const result = await api.get('/credentials');
+      setCredentials(result.data.credentials || {});
+
+      // Pre-fill form with existing client IDs (secrets are hidden)
+      const newFormData = { ...formData };
+      Object.entries(result.data.credentials || {}).forEach(([platform, data]: [string, any]) => {
+        if (newFormData[platform]) {
+          newFormData[platform].client_id = data.client_id || '';
+        }
+      });
+      setFormData(newFormData);
+    } catch (error) {
+      console.error('Failed to load credentials:', error);
+    }
+  }
+
+  async function handleSaveCredentials(platformId: string) {
+    const data = formData[platformId];
+    if (!data.client_id || !data.client_secret) {
+      toast.error('Please fill in both Client ID and Client Secret');
+      return;
+    }
+
+    setSaving(platformId);
+    try {
+      await api.post('/credentials', {
+        platform: platformId,
+        client_id: data.client_id,
+        client_secret: data.client_secret,
+      });
+      toast.success(`${platformId} credentials saved!`);
+      loadCredentials();
+      loadStatus();
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || 'Failed to save credentials');
+    } finally {
+      setSaving(null);
+    }
+  }
+
   async function handleConnect(platformId: string) {
     setConnecting(platformId);
     try {
@@ -121,7 +176,6 @@ export default function Settings() {
       const { auth_url } = response.data;
 
       if (auth_url) {
-        // Redirect to OAuth provider
         window.location.href = auth_url;
       }
     } catch (error: any) {
@@ -143,14 +197,122 @@ export default function Settings() {
     }
   }
 
+  const updateFormData = (platform: string, field: string, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      [platform]: { ...prev[platform], [field]: value }
+    }));
+  };
+
+  const toggleShowSecret = (platform: string) => {
+    setShowSecrets(prev => ({ ...prev, [platform]: !prev[platform] }));
+  };
+
   return (
     <div className="p-8 max-w-4xl mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
-        <p className="text-gray-500 mt-1">Connect your social media accounts</p>
+        <p className="text-gray-500 mt-1">Add your API credentials and connect accounts</p>
       </div>
 
-      {/* Platform Connections */}
+      {/* Credentials Setup */}
+      <div className="card mb-8">
+        <h2 className="text-lg font-semibold mb-2 flex items-center gap-2">
+          <Key className="w-5 h-5" />
+          API Credentials
+        </h2>
+        <p className="text-sm text-gray-500 mb-6">
+          Enter your OAuth credentials from each platform. They'll be saved securely.
+        </p>
+
+        <div className="space-y-6">
+          {platformConfig.map((platform) => {
+            const isConfigured = credentials[platform.id]?.configured;
+            const form = formData[platform.id] || { client_id: '', client_secret: '' };
+
+            return (
+              <div key={platform.id} className="border rounded-xl p-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className={`p-2 rounded-lg ${platform.color} text-white`}>
+                    <platform.icon className="w-5 h-5" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-medium">{platform.name}</p>
+                    <p className="text-sm text-gray-500">{platform.description}</p>
+                  </div>
+                  {isConfigured && (
+                    <span className="flex items-center gap-1 text-green-600 text-sm">
+                      <CheckCircle className="w-4 h-4" />
+                      Configured
+                    </span>
+                  )}
+                  <a
+                    href={platform.docsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline text-sm flex items-center gap-1"
+                  >
+                    Get Keys <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Client ID / App ID
+                    </label>
+                    <input
+                      type="text"
+                      className="input"
+                      placeholder={`${platform.envPrefix}_CLIENT_ID`}
+                      value={form.client_id}
+                      onChange={(e) => updateFormData(platform.id, 'client_id', e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Client Secret / App Secret
+                    </label>
+                    <div className="relative">
+                      <input
+                        type={showSecrets[platform.id] ? 'text' : 'password'}
+                        className="input pr-10"
+                        placeholder={`${platform.envPrefix}_CLIENT_SECRET`}
+                        value={form.client_secret}
+                        onChange={(e) => updateFormData(platform.id, 'client_secret', e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => toggleShowSecret(platform.id)}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showSecrets[platform.id] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex gap-2">
+                  <button
+                    onClick={() => handleSaveCredentials(platform.id)}
+                    disabled={saving === platform.id}
+                    className="btn btn-primary text-sm flex items-center gap-2"
+                  >
+                    {saving === platform.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Save className="w-4 h-4" />
+                    )}
+                    Save Credentials
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Connected Accounts */}
       <div className="card mb-8">
         <h2 className="text-lg font-semibold mb-6">Connected Accounts</h2>
 
@@ -160,11 +322,18 @@ export default function Settings() {
           </div>
         ) : (
           <div className="space-y-4">
-            {platformConfig.map((platform) => {
+            {[
+              { id: 'facebook', name: 'Facebook Page', icon: Facebook, color: 'bg-blue-600' },
+              { id: 'instagram_1', name: 'Instagram 1', icon: Instagram, color: 'bg-gradient-to-r from-purple-500 to-pink-500' },
+              { id: 'instagram_2', name: 'Instagram 2', icon: Instagram, color: 'bg-gradient-to-r from-pink-500 to-orange-500' },
+              { id: 'twitter', name: 'Twitter/X', icon: Twitter, color: 'bg-black' },
+              { id: 'youtube', name: 'YouTube', icon: Youtube, color: 'bg-red-600' },
+              { id: 'linkedin', name: 'LinkedIn', icon: Linkedin, color: 'bg-blue-700' },
+            ].map((platform) => {
               const status = platformStatus?.[platform.id as keyof PlatformStatus];
               const isConnected = status?.connected;
               const isConfigured = status?.oauth_configured;
-              const displayName = status?.page_name || status?.account_name || platform.name;
+              const displayName = (status as any)?.page_name || (status as any)?.account_name || platform.name;
 
               return (
                 <div
@@ -173,14 +342,12 @@ export default function Settings() {
                 >
                   <div className="flex items-center gap-4">
                     <div className={`p-3 rounded-xl ${platform.color} text-white`}>
-                      <platform.icon className="w-6 h-6" />
+                      <platform.icon className="w-5 h-5" />
                     </div>
                     <div>
                       <p className="font-medium text-gray-900">{platform.name}</p>
                       <p className="text-sm text-gray-500">
-                        {isConnected
-                          ? displayName
-                          : platform.description}
+                        {isConnected ? displayName : 'Not connected'}
                       </p>
                     </div>
                   </div>
@@ -221,7 +388,7 @@ export default function Settings() {
                     ) : (
                       <span className="flex items-center gap-1 text-gray-400 text-sm">
                         <XCircle className="w-4 h-4" />
-                        Not configured
+                        Add credentials above
                       </span>
                     )}
                   </div>
@@ -232,122 +399,17 @@ export default function Settings() {
         )}
       </div>
 
-      {/* Setup Instructions */}
+      {/* Callback URLs */}
       <div className="card">
-        <h2 className="text-lg font-semibold mb-4">Setup Guide</h2>
-
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-          <div className="flex gap-3">
-            <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-            <div className="text-sm text-blue-800">
-              <p className="font-medium mb-2">How to connect your accounts</p>
-              <p>
-                Create OAuth apps on each platform and add the credentials to your Vercel environment variables.
-                The callback URL pattern is: <code className="bg-blue-100 px-1 rounded">https://your-domain.vercel.app/api/auth/[platform]/callback</code>
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          {/* Facebook & Instagram Setup */}
-          <div className="border-b pb-6">
-            <h3 className="font-medium flex items-center gap-2 mb-3">
-              <Facebook className="w-5 h-5 text-blue-600" />
-              Facebook & Instagram (Meta)
-            </h3>
-            <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600">
-              <li>Go to <a href="https://developers.facebook.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Meta for Developers <ExternalLink className="w-3 h-3 inline" /></a></li>
-              <li>Create a new app (type: Business)</li>
-              <li>Add Facebook Login product</li>
-              <li>Add callback URL: <code className="bg-gray-100 px-1 rounded">https://your-domain/api/auth/facebook/callback</code></li>
-              <li>Request permissions: pages_manage_posts, pages_read_engagement, instagram_basic, instagram_content_publish, business_management</li>
-              <li>Link your Instagram Business accounts to your Facebook Pages</li>
-            </ol>
-            <div className="bg-gray-50 rounded-lg p-3 font-mono text-sm mt-3">
-              <div>FACEBOOK_APP_ID=your_app_id</div>
-              <div>FACEBOOK_APP_SECRET=your_app_secret</div>
-            </div>
-            <p className="text-sm text-gray-500 mt-3">
-              Both Instagram accounts will be detected automatically when you connect Facebook.
-            </p>
-          </div>
-
-          {/* Twitter Setup */}
-          <div className="border-b pb-6">
-            <h3 className="font-medium flex items-center gap-2 mb-3">
-              <Twitter className="w-5 h-5" />
-              Twitter/X
-            </h3>
-            <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600">
-              <li>Go to <a href="https://developer.twitter.com/en/portal/dashboard" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Twitter Developer Portal <ExternalLink className="w-3 h-3 inline" /></a></li>
-              <li>Create a project and app</li>
-              <li>Enable OAuth 2.0 with "Read and write" permissions</li>
-              <li>Add callback URL: <code className="bg-gray-100 px-1 rounded">https://your-domain/api/auth/twitter/callback</code></li>
-            </ol>
-            <div className="bg-gray-50 rounded-lg p-3 font-mono text-sm mt-3">
-              <div>TWITTER_CLIENT_ID=your_client_id</div>
-              <div>TWITTER_CLIENT_SECRET=your_client_secret</div>
-            </div>
-          </div>
-
-          {/* YouTube Setup */}
-          <div className="border-b pb-6">
-            <h3 className="font-medium flex items-center gap-2 mb-3">
-              <Youtube className="w-5 h-5 text-red-600" />
-              YouTube
-            </h3>
-            <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600">
-              <li>Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Google Cloud Console <ExternalLink className="w-3 h-3 inline" /></a></li>
-              <li>Create a project and enable YouTube Data API v3</li>
-              <li>Create OAuth 2.0 credentials</li>
-              <li>Add callback URL: <code className="bg-gray-100 px-1 rounded">https://your-domain/api/auth/youtube/callback</code></li>
-            </ol>
-            <div className="bg-gray-50 rounded-lg p-3 font-mono text-sm mt-3">
-              <div>YOUTUBE_CLIENT_ID=your_client_id</div>
-              <div>YOUTUBE_CLIENT_SECRET=your_client_secret</div>
-            </div>
-          </div>
-
-          {/* LinkedIn Setup */}
-          <div className="pb-6">
-            <h3 className="font-medium flex items-center gap-2 mb-3">
-              <Linkedin className="w-5 h-5 text-blue-700" />
-              LinkedIn
-            </h3>
-            <ol className="list-decimal list-inside space-y-2 text-sm text-gray-600">
-              <li>Go to <a href="https://www.linkedin.com/developers/apps" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">LinkedIn Developer Portal <ExternalLink className="w-3 h-3 inline" /></a></li>
-              <li>Create a new app</li>
-              <li>Request "Share on LinkedIn" and "Sign In with LinkedIn using OpenID Connect" products</li>
-              <li>Add callback URL: <code className="bg-gray-100 px-1 rounded">https://your-domain/api/auth/linkedin/callback</code></li>
-            </ol>
-            <div className="bg-gray-50 rounded-lg p-3 font-mono text-sm mt-3">
-              <div>LINKEDIN_CLIENT_ID=your_client_id</div>
-              <div>LINKEDIN_CLIENT_SECRET=your_client_secret</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Environment Variables Summary */}
-      <div className="card mt-8">
-        <h2 className="text-lg font-semibold mb-4">All Environment Variables</h2>
+        <h2 className="text-lg font-semibold mb-4">Callback URLs</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          Add these URLs to your OAuth app settings on each platform:
+        </p>
         <div className="bg-gray-900 text-green-400 rounded-lg p-4 font-mono text-sm overflow-x-auto">
-          <pre>{`# Facebook & Instagram
-FACEBOOK_APP_ID=your_app_id
-FACEBOOK_APP_SECRET=your_app_secret
-
-# Twitter/X
-TWITTER_CLIENT_ID=your_client_id
-TWITTER_CLIENT_SECRET=your_client_secret
-
-# YouTube
-YOUTUBE_CLIENT_ID=your_client_id
-YOUTUBE_CLIENT_SECRET=your_client_secret
-
-# LinkedIn
-LINKEDIN_CLIENT_ID=your_client_id
-LINKEDIN_CLIENT_SECRET=your_client_secret`}</pre>
+          <pre>{`Facebook:  https://social-media-dashboard-five-zeta.vercel.app/api/auth/facebook/callback
+Twitter:   https://social-media-dashboard-five-zeta.vercel.app/api/auth/twitter/callback
+YouTube:   https://social-media-dashboard-five-zeta.vercel.app/api/auth/youtube/callback
+LinkedIn:  https://social-media-dashboard-five-zeta.vercel.app/api/auth/linkedin/callback`}</pre>
         </div>
       </div>
     </div>

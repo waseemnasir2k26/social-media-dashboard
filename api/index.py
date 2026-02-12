@@ -16,8 +16,42 @@ import asyncio
 # Initialize FastAPI
 app = FastAPI(title="Social Media Dashboard API - Simple Posting Tool")
 
-# Supabase disabled for now - using in-memory storage
-supabase = None
+# Supabase REST API (direct calls, no SDK needed)
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+
+async def supabase_request(method: str, table: str, data: dict = None, params: dict = None):
+    """Make direct REST API calls to Supabase."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        return None
+
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            if method == "GET":
+                resp = await client.get(url, headers=headers, params=params)
+            elif method == "POST":
+                resp = await client.post(url, headers=headers, json=data)
+            elif method == "PATCH":
+                resp = await client.patch(url, headers=headers, json=data, params=params)
+            elif method == "DELETE":
+                resp = await client.delete(url, headers=headers, params=params)
+            else:
+                return None
+
+            if resp.status_code in [200, 201]:
+                return resp.json() if resp.text else []
+            return None
+    except Exception as e:
+        print(f"Supabase error: {e}")
+        return None
 
 # Get base URL for callbacks
 BASE_URL = os.environ.get("VERCEL_URL", "")
@@ -954,6 +988,102 @@ async def get_scheduler_jobs():
     # Fallback to memory
     scheduled = [p for p in posts_cache.values() if p["status"] == "scheduled"]
     return {"jobs": scheduled, "total": len(scheduled)}
+
+
+# ============ Credentials Management ============
+
+class SaveCredentialsRequest(BaseModel):
+    platform: str
+    client_id: str
+    client_secret: str
+
+
+@app.get("/api/credentials")
+async def get_credentials():
+    """Get all saved OAuth credentials (without secrets)."""
+    # Try Supabase
+    result = await supabase_request("GET", "oauth_credentials", params={"select": "platform,client_id,created_at"})
+
+    if result is not None:
+        creds = {r["platform"]: {"client_id": r["client_id"], "configured": True} for r in result}
+        return {"credentials": creds}
+
+    # Return empty if no Supabase
+    return {"credentials": {}}
+
+
+@app.post("/api/credentials")
+async def save_credentials(request: SaveCredentialsRequest):
+    """Save OAuth credentials to Supabase."""
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        raise HTTPException(status_code=400, detail="Supabase not configured")
+
+    # Check if exists
+    existing = await supabase_request(
+        "GET", "oauth_credentials",
+        params={"platform": f"eq.{request.platform}", "select": "id"}
+    )
+
+    data = {
+        "platform": request.platform,
+        "client_id": request.client_id,
+        "client_secret": request.client_secret,
+        "updated_at": datetime.utcnow().isoformat()
+    }
+
+    if existing:
+        # Update
+        result = await supabase_request(
+            "PATCH", "oauth_credentials",
+            data=data,
+            params={"platform": f"eq.{request.platform}"}
+        )
+    else:
+        # Insert
+        data["created_at"] = datetime.utcnow().isoformat()
+        result = await supabase_request("POST", "oauth_credentials", data=data)
+
+    if result is not None:
+        return {"success": True, "message": f"{request.platform} credentials saved"}
+
+    raise HTTPException(status_code=500, detail="Failed to save credentials")
+
+
+@app.delete("/api/credentials/{platform}")
+async def delete_credentials(platform: str):
+    """Delete OAuth credentials."""
+    await supabase_request("DELETE", "oauth_credentials", params={"platform": f"eq.{platform}"})
+    return {"success": True, "message": f"{platform} credentials deleted"}
+
+
+# Helper to get credentials for OAuth
+async def get_oauth_credentials(platform: str) -> dict:
+    """Get OAuth credentials for a platform."""
+    # First check environment variables
+    env_mapping = {
+        "facebook": ("FACEBOOK_APP_ID", "FACEBOOK_APP_SECRET"),
+        "twitter": ("TWITTER_CLIENT_ID", "TWITTER_CLIENT_SECRET"),
+        "youtube": ("YOUTUBE_CLIENT_ID", "YOUTUBE_CLIENT_SECRET"),
+        "linkedin": ("LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"),
+    }
+
+    if platform in env_mapping:
+        id_key, secret_key = env_mapping[platform]
+        env_id = os.environ.get(id_key, "")
+        env_secret = os.environ.get(secret_key, "")
+        if env_id and env_secret:
+            return {"client_id": env_id, "client_secret": env_secret}
+
+    # Try Supabase
+    result = await supabase_request(
+        "GET", "oauth_credentials",
+        params={"platform": f"eq.{platform}", "select": "client_id,client_secret"}
+    )
+
+    if result and len(result) > 0:
+        return {"client_id": result[0]["client_id"], "client_secret": result[0]["client_secret"]}
+
+    return {}
 
 
 # Vercel serverless handler
