@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
@@ -10,9 +10,26 @@ import httpx
 import secrets
 import base64
 import hashlib
+import logging
+import traceback
+
+# Setup logging
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 # Initialize FastAPI
 app = FastAPI(title="Social Media Dashboard API")
+
+# Global error handler
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Global error: {str(exc)}")
+    logger.error(traceback.format_exc())
+    return JSONResponse(
+        status_code=500,
+        content={"detail": str(exc), "traceback": traceback.format_exc()}
+    )
 
 # Supabase config
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
@@ -46,8 +63,10 @@ post_counter = 0
 
 async def db_get(table: str, params: dict = None):
     if not SUPABASE_URL or not SUPABASE_KEY:
+        logger.warning(f"db_get({table}): Supabase not configured")
         return None
     try:
+        logger.debug(f"db_get({table}): params={params}")
         async with httpx.AsyncClient() as client:
             resp = await client.get(
                 f"{SUPABASE_URL}/rest/v1/{table}",
@@ -57,16 +76,20 @@ async def db_get(table: str, params: dict = None):
                 },
                 params=params or {}
             )
+            logger.debug(f"db_get({table}): status={resp.status_code}")
             if resp.status_code == 200:
                 return resp.json()
-    except:
-        pass
+            logger.error(f"db_get({table}): error={resp.text}")
+    except Exception as e:
+        logger.error(f"db_get({table}): exception={str(e)}")
     return None
 
 async def db_post(table: str, data: dict):
     if not SUPABASE_URL or not SUPABASE_KEY:
+        logger.warning(f"db_post({table}): Supabase not configured")
         return None
     try:
+        logger.debug(f"db_post({table}): data keys={list(data.keys())}")
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 f"{SUPABASE_URL}/rest/v1/{table}",
@@ -78,10 +101,12 @@ async def db_post(table: str, data: dict):
                 },
                 json=data
             )
+            logger.debug(f"db_post({table}): status={resp.status_code}")
             if resp.status_code in [200, 201]:
                 return resp.json()
-    except:
-        pass
+            logger.error(f"db_post({table}): error={resp.text}")
+    except Exception as e:
+        logger.error(f"db_post({table}): exception={str(e)}")
     return None
 
 async def db_patch(table: str, data: dict, params: dict):
@@ -143,23 +168,43 @@ class SaveCredentialsRequest(BaseModel):
 
 @app.get("/api")
 async def root():
+    logger.info("Root endpoint called")
     return {"message": "Social Media Dashboard API", "status": "running"}
 
 @app.get("/api/health")
 async def health():
-    return {"status": "healthy", "supabase": bool(SUPABASE_URL)}
+    logger.info(f"Health check - SUPABASE_URL: {bool(SUPABASE_URL)}, SUPABASE_KEY: {bool(SUPABASE_KEY)}")
+    return {"status": "healthy", "supabase_configured": bool(SUPABASE_URL and SUPABASE_KEY)}
+
+@app.get("/api/debug")
+async def debug():
+    """Debug endpoint to check configuration"""
+    return {
+        "supabase_url": SUPABASE_URL[:30] + "..." if SUPABASE_URL else "NOT SET",
+        "supabase_key": SUPABASE_KEY[:10] + "..." if SUPABASE_KEY else "NOT SET",
+        "base_url": BASE_URL,
+        "env_vars": {
+            "VERCEL_URL": os.environ.get("VERCEL_URL", "NOT SET"),
+            "SUPABASE_URL": "SET" if SUPABASE_URL else "NOT SET",
+            "SUPABASE_KEY": "SET" if SUPABASE_KEY else "NOT SET",
+        }
+    }
 
 # ============ Credentials ============
 
 @app.get("/api/credentials")
 async def get_credentials():
+    logger.info("GET /api/credentials called")
     result = await db_get("oauth_credentials", {"select": "platform,client_id"})
+    logger.info(f"Credentials result: {result}")
     if result:
         return {"credentials": {r["platform"]: {"client_id": r["client_id"], "configured": True} for r in result}}
     return {"credentials": credentials_cache}
 
 @app.post("/api/credentials")
 async def save_credentials(request: SaveCredentialsRequest):
+    logger.info(f"POST /api/credentials: platform={request.platform}")
+
     data = {
         "platform": request.platform,
         "client_id": request.client_id,
@@ -168,18 +213,25 @@ async def save_credentials(request: SaveCredentialsRequest):
     }
 
     # Check if exists
+    logger.debug("Checking if credentials exist...")
     existing = await db_get("oauth_credentials", {"platform": f"eq.{request.platform}", "select": "id"})
+    logger.debug(f"Existing: {existing}")
 
     if existing and len(existing) > 0:
+        logger.info("Updating existing credentials")
         result = await db_patch("oauth_credentials", data, {"platform": f"eq.{request.platform}"})
     else:
+        logger.info("Creating new credentials")
         data["created_at"] = datetime.utcnow().isoformat()
         result = await db_post("oauth_credentials", data)
+
+    logger.info(f"Save result: {result}")
 
     if result:
         return {"success": True, "message": f"{request.platform} credentials saved"}
 
     # Fallback to memory
+    logger.warning("Falling back to memory storage")
     credentials_cache[request.platform] = {"client_id": request.client_id, "configured": True}
     return {"success": True, "message": f"{request.platform} credentials saved (in memory)"}
 
