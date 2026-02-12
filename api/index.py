@@ -72,7 +72,10 @@ app.add_middleware(
 )
 
 # ============ Token & Post Storage ============
-# Uses Supabase if configured, otherwise falls back to in-memory
+# Uses Supabase REST API if configured, otherwise falls back to in-memory
+
+# Legacy variable - set to None to skip old SDK code blocks
+supabase = None
 
 tokens_cache: Dict[str, Dict[str, Any]] = {}
 posts_cache: Dict[int, dict] = {}
