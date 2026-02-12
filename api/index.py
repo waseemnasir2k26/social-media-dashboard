@@ -247,7 +247,8 @@ async def oauth_callback(platform: str, code: str = None, state: str = None, err
 
     if platform == "twitter" and state in pkce_verifiers:
         data["code_verifier"] = pkce_verifiers.pop(state)
-        headers["Authorization"] = f"Basic {base64.b64encode(f'{creds['client_id']}:{creds['client_secret']}'.encode()).decode()}"
+        auth_str = f"{creds['client_id']}:{creds['client_secret']}"
+        headers["Authorization"] = f"Basic {base64.b64encode(auth_str.encode()).decode()}"
         del data["client_secret"]
 
     try:
