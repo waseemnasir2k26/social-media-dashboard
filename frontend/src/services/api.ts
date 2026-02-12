@@ -15,13 +15,9 @@ export interface Post {
   id: number;
   content: string;
   image_url?: string;
-  image_prompt?: string;
-  content_type: string;
-  topic?: string;
-  hook_type?: string;
+  video_url?: string;
   word_count: number;
   status: string;
-  auto_post: boolean;
   scheduled_time?: string;
   platforms: string[];
   posted_ids: Record<string, string>;
@@ -31,22 +27,11 @@ export interface Post {
   updated_at: string;
 }
 
-export interface GenerateContentRequest {
-  content_type: string;
-  topic?: string;
-  platforms: string[];
-  custom_prompt?: string;
-  auto_post: boolean;
-}
-
 export interface CreatePostRequest {
   content: string;
   image_url?: string;
-  image_prompt?: string;
-  content_type: string;
-  topic?: string;
+  video_url?: string;
   platforms: string[];
-  auto_post: boolean;
   scheduled_time?: string;
 }
 
@@ -54,18 +39,21 @@ export interface PlatformInfo {
   connected: boolean;
   oauth_configured: boolean;
   page_name?: string;
+  account_name?: string;
 }
 
 export interface PlatformStatus {
   twitter: PlatformInfo;
   linkedin: PlatformInfo;
   facebook: PlatformInfo;
-  instagram: PlatformInfo;
+  instagram_1: PlatformInfo;
+  instagram_2: PlatformInfo;
+  youtube: PlatformInfo;
 }
 
 // Posts API
 export const postsApi = {
-  async list(params?: { status?: string; content_type?: string; limit?: number; offset?: number }) {
+  async list(params?: { status?: string; limit?: number; offset?: number }) {
     const response = await api.get('/posts', { params });
     return response.data;
   },
@@ -90,21 +78,6 @@ export const postsApi = {
     return response.data;
   },
 
-  async generate(data: GenerateContentRequest) {
-    const response = await api.post('/posts/generate', data);
-    return response.data;
-  },
-
-  async generateImage(prompt: string) {
-    const response = await api.post('/posts/generate-image', null, { params: { prompt } });
-    return response.data;
-  },
-
-  async approve(id: number) {
-    const response = await api.post(`/posts/${id}/approve`);
-    return response.data;
-  },
-
   async publish(id: number) {
     const response = await api.post(`/posts/${id}/publish`);
     return response.data;
@@ -113,7 +86,7 @@ export const postsApi = {
 
 // Platforms API
 export const platformsApi = {
-  async getStatus(): Promise<{ platforms: PlatformStatus; openai_configured: boolean; summary?: { configured: number; total: number } }> {
+  async getStatus(): Promise<{ platforms: PlatformStatus }> {
     const response = await api.get('/platforms/status');
     return response.data;
   },

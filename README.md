@@ -1,66 +1,120 @@
-# Social Media Dashboard
+# Social Media Dashboard - Simple Posting Tool
 
-A full-stack social media content management dashboard with AI-powered content generation. Post to LinkedIn, Twitter/X, Facebook, and Instagram from one place.
+A free, simple social media dashboard to post content across multiple platforms at once. Like Buffer, but free and self-hosted on Vercel.
+
+## Supported Platforms
+
+- **Facebook Page** (1 page)
+- **Instagram** (2 accounts)
+- **Twitter/X** (1 account)
+- **YouTube** (1 channel)
+- **LinkedIn** (1 profile)
 
 ## Features
 
-- **AI Content Generation** - Generate educational, motivational, or custom posts using GPT-4o
-- **Image Generation** - Create images with DALL-E 3
-- **Multi-Platform Posting** - Post to LinkedIn, Twitter/X, Facebook, and Instagram
-- **Approval Queue** - Review AI-generated content before publishing
-- **Scheduling** - Schedule posts for later
-- **Hybrid Automation** - Mix of auto-posting and manual approval
+- **Multi-Platform Posting** - Post to 6 platforms with one click
+- **Simple Dashboard** - Clean, easy-to-use interface
+- **Image & Video Support** - Share media across platforms
+- **Post History** - Track all your posts and their status
+- **OAuth Integration** - Secure connection to all platforms
+- **100% Free** - Self-hosted on Vercel's free tier
 
 ## Tech Stack
 
 - **Backend**: Python + FastAPI (Vercel Serverless Functions)
 - **Frontend**: React + TypeScript + Tailwind CSS
-- **AI**: OpenAI GPT-4o + DALL-E 3
+- **Hosting**: Vercel (Free)
 
 ---
 
-## Deploy to Vercel (Recommended)
+## Quick Start
 
-### Step 1: Push to GitHub
+### 1. Deploy to Vercel
 
 ```bash
+# Clone the repo
+git clone https://github.com/YOUR_USERNAME/social-media-dashboard.git
 cd social-media-dashboard
-git init
-git add .
-git commit -m "Initial commit"
-git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/social-media-dashboard.git
+
+# Push to your GitHub
+git remote set-url origin https://github.com/YOUR_USERNAME/social-media-dashboard.git
 git push -u origin main
 ```
 
-### Step 2: Deploy on Vercel
+Then:
+1. Go to [vercel.com](https://vercel.com)
+2. Import your GitHub repository
+3. Click **Deploy**
 
-1. Go to [vercel.com](https://vercel.com) and sign in
-2. Click **"Add New Project"**
-3. Import your GitHub repository
-4. Vercel will auto-detect the config - just click **Deploy**
-
-### Step 3: Add Environment Variables
+### 2. Add Environment Variables
 
 In Vercel Dashboard → Your Project → Settings → Environment Variables:
 
-| Variable | Value |
-|----------|-------|
-| `OPENAI_API_KEY` | `sk-your-openai-key` |
-| `LINKEDIN_ACCESS_TOKEN` | Your LinkedIn token |
-| `TWITTER_API_KEY` | Your Twitter API key |
-| `TWITTER_API_SECRET` | Your Twitter API secret |
-| `TWITTER_ACCESS_TOKEN` | Your Twitter access token |
-| `TWITTER_ACCESS_TOKEN_SECRET` | Your Twitter access token secret |
-| `FACEBOOK_PAGE_ACCESS_TOKEN` | Your Facebook page token |
-| `FACEBOOK_PAGE_ID` | Your Facebook page ID |
-| `INSTAGRAM_ACCOUNT_ID` | Your Instagram account ID |
+```bash
+# Facebook & Instagram (Meta)
+FACEBOOK_APP_ID=your_app_id
+FACEBOOK_APP_SECRET=your_app_secret
 
-### Step 4: Redeploy
+# Twitter/X
+TWITTER_CLIENT_ID=your_client_id
+TWITTER_CLIENT_SECRET=your_client_secret
 
-After adding environment variables, go to Deployments → click "..." → Redeploy
+# YouTube (Google)
+YOUTUBE_CLIENT_ID=your_client_id
+YOUTUBE_CLIENT_SECRET=your_client_secret
 
-**Done!** Your dashboard is live at `your-project.vercel.app`
+# LinkedIn
+LINKEDIN_CLIENT_ID=your_client_id
+LINKEDIN_CLIENT_SECRET=your_client_secret
+```
+
+### 3. Redeploy
+
+After adding environment variables, redeploy your app.
+
+---
+
+## Getting API Credentials
+
+### Facebook & Instagram (Meta)
+
+1. Go to [developers.facebook.com](https://developers.facebook.com)
+2. Create a new app (Type: Business)
+3. Add **Facebook Login** product
+4. Add callback URL: `https://your-app.vercel.app/api/auth/facebook/callback`
+5. Request permissions:
+   - `pages_manage_posts`
+   - `pages_read_engagement`
+   - `instagram_basic`
+   - `instagram_content_publish`
+   - `business_management`
+6. Link your Instagram Business accounts to your Facebook Pages
+
+**Note**: Both Instagram accounts will be detected automatically when you connect Facebook.
+
+### Twitter/X
+
+1. Go to [developer.twitter.com](https://developer.twitter.com)
+2. Create a project and app
+3. Enable OAuth 2.0 with "Read and write" permissions
+4. Add callback URL: `https://your-app.vercel.app/api/auth/twitter/callback`
+
+### YouTube (Google)
+
+1. Go to [console.cloud.google.com](https://console.cloud.google.com)
+2. Create a project
+3. Enable **YouTube Data API v3**
+4. Create OAuth 2.0 credentials
+5. Add callback URL: `https://your-app.vercel.app/api/auth/youtube/callback`
+
+### LinkedIn
+
+1. Go to [linkedin.com/developers](https://www.linkedin.com/developers/apps)
+2. Create a new app
+3. Request products:
+   - "Share on LinkedIn"
+   - "Sign In with LinkedIn using OpenID Connect"
+4. Add callback URL: `https://your-app.vercel.app/api/auth/linkedin/callback`
 
 ---
 
@@ -90,34 +144,6 @@ Runs at: http://localhost:8000
 
 ---
 
-## Getting API Credentials
-
-### OpenAI (Required)
-1. Go to https://platform.openai.com/api-keys
-2. Create a new API key
-3. Add as `OPENAI_API_KEY`
-
-### LinkedIn
-1. Go to https://www.linkedin.com/developers/apps
-2. Create an app
-3. Get OAuth 2.0 access token with `w_member_social` scope
-4. Add as `LINKEDIN_ACCESS_TOKEN`
-
-### Twitter/X
-1. Go to https://developer.twitter.com/en/portal/dashboard
-2. Create a project and app (with OAuth 1.0a)
-3. Get API Key, Secret, Access Token, and Access Token Secret
-4. Add all four values
-
-### Facebook & Instagram
-1. Go to https://developers.facebook.com/
-2. Create an app with Facebook Login
-3. Get Page Access Token with `pages_manage_posts` permission
-4. For Instagram, link your Instagram Business Account to the Page
-5. Add `FACEBOOK_PAGE_ACCESS_TOKEN`, `FACEBOOK_PAGE_ID`, and `INSTAGRAM_ACCOUNT_ID`
-
----
-
 ## Project Structure
 
 ```
@@ -127,14 +153,12 @@ social-media-dashboard/
 │   └── requirements.txt   # Python dependencies
 ├── frontend/
 │   ├── src/
-│   │   ├── pages/         # Dashboard, CreatePost, Queue, History, Settings
+│   │   ├── pages/         # Dashboard, CreatePost, History, Settings
 │   │   ├── components/    # Layout, UI components
 │   │   └── services/      # API client
 │   ├── package.json
 │   └── vite.config.ts
-├── backend/               # Full backend (for local dev)
-│   └── ...
-├── vercel.json           # Vercel configuration
+├── vercel.json            # Vercel configuration
 └── README.md
 ```
 
@@ -142,34 +166,38 @@ social-media-dashboard/
 
 ## Usage
 
-1. **Create Post**: Generate AI content or write manually
-2. **Review**: Posts go to approval queue
-3. **Approve/Schedule**: Approve for immediate posting or schedule
-4. **Publish**: Post to selected platforms
-5. **Track**: View post history
+1. **Connect Accounts**: Go to Settings and connect your social media accounts
+2. **Create Post**: Write your content, add media (optional)
+3. **Select Platforms**: Choose which platforms to post to
+4. **Publish**: Click "Publish Now" or save as draft
 
 ---
 
-## Important Notes
+## Notes
 
 ### Data Persistence
-The Vercel serverless version uses in-memory storage (data resets on cold starts). For persistent storage, you can:
 
-1. **Vercel KV** (Redis) - Add `@vercel/kv` package
-2. **Vercel Postgres** - Add PostgreSQL database
-3. **Supabase** - Free PostgreSQL hosting
+The Vercel serverless version uses in-memory storage (data resets on cold starts). For persistent storage, consider:
 
-### Scheduled Posts
-Vercel Cron Jobs can be added for scheduled posting. Add to `vercel.json`:
+- **Vercel KV** (Redis) - Add `@vercel/kv` package
+- **Vercel Postgres** - PostgreSQL database
+- **Supabase** - Free PostgreSQL hosting
 
-```json
-{
-  "crons": [{
-    "path": "/api/cron/publish",
-    "schedule": "0 * * * *"
-  }]
-}
-```
+### Instagram Requirements
+
+- Requires a Facebook Page linked to an Instagram Business account
+- Image/Video URL must be publicly accessible
+- Videos must be in MP4 format
+
+### Platform Limits
+
+| Platform | Character Limit |
+|----------|-----------------|
+| Twitter | 280 characters |
+| LinkedIn | 3,000 characters |
+| Facebook | 63,206 characters |
+| Instagram | 2,200 characters |
+| YouTube | Varies by field |
 
 ---
 

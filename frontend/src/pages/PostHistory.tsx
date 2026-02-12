@@ -1,13 +1,18 @@
 import { useEffect, useState } from 'react';
+import toast from 'react-hot-toast';
 import {
   Twitter,
   Linkedin,
   Facebook,
   Instagram,
+  Youtube,
   CheckCircle,
   XCircle,
   Clock,
   Filter,
+  Send,
+  Trash2,
+  Loader2,
 } from 'lucide-react';
 import { postsApi, Post } from '../services/api';
 import { format } from 'date-fns';
@@ -16,13 +21,23 @@ const platformIcons: Record<string, typeof Twitter> = {
   twitter: Twitter,
   linkedin: Linkedin,
   facebook: Facebook,
-  instagram: Instagram,
+  instagram_1: Instagram,
+  instagram_2: Instagram,
+  youtube: Youtube,
+};
+
+const platformLabels: Record<string, string> = {
+  twitter: 'Twitter',
+  linkedin: 'LinkedIn',
+  facebook: 'Facebook',
+  instagram_1: 'IG 1',
+  instagram_2: 'IG 2',
+  youtube: 'YouTube',
 };
 
 const statusFilters = [
   { value: '', label: 'All' },
   { value: 'draft', label: 'Draft' },
-  { value: 'pending_approval', label: 'Pending' },
   { value: 'scheduled', label: 'Scheduled' },
   { value: 'posted', label: 'Posted' },
   { value: 'failed', label: 'Failed' },
@@ -33,6 +48,8 @@ export default function PostHistory() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('');
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
+  const [publishing, setPublishing] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState<number | null>(null);
 
   useEffect(() => {
     loadPosts();
@@ -53,6 +70,43 @@ export default function PostHistory() {
     }
   }
 
+  async function handlePublish(postId: number, e: React.MouseEvent) {
+    e.stopPropagation();
+    setPublishing(postId);
+    try {
+      const result = await postsApi.publish(postId);
+      if (result.success) {
+        toast.success('Posted successfully!');
+      } else {
+        toast.error(result.post.error_message || 'Some platforms failed');
+      }
+      loadPosts();
+    } catch (error: any) {
+      toast.error(error.response?.data?.detail || 'Failed to publish');
+    } finally {
+      setPublishing(null);
+    }
+  }
+
+  async function handleDelete(postId: number, e: React.MouseEvent) {
+    e.stopPropagation();
+    if (!confirm('Are you sure you want to delete this post?')) return;
+
+    setDeleting(postId);
+    try {
+      await postsApi.delete(postId);
+      toast.success('Post deleted');
+      loadPosts();
+      if (selectedPost?.id === postId) {
+        setSelectedPost(null);
+      }
+    } catch (error) {
+      toast.error('Failed to delete post');
+    } finally {
+      setDeleting(null);
+    }
+  }
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case 'posted':
@@ -60,9 +114,9 @@ export default function PostHistory() {
       case 'failed':
         return <XCircle className="w-5 h-5 text-red-500" />;
       case 'scheduled':
-        return <Clock className="w-5 h-5 text-purple-500" />;
+        return <Clock className="w-5 h-5 text-blue-500" />;
       default:
-        return <Clock className="w-5 h-5 text-gray-500" />;
+        return <Clock className="w-5 h-5 text-gray-400" />;
     }
   };
 
@@ -111,13 +165,13 @@ export default function PostHistory() {
                   Content
                 </th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
-                  Type
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
                   Platforms
                 </th>
                 <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
                   Date
+                </th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
+                  Actions
                 </th>
               </tr>
             </thead>
@@ -132,21 +186,25 @@ export default function PostHistory() {
                     <div className="flex items-center gap-2">
                       {getStatusIcon(post.status)}
                       <span
-                        className={`badge badge-${post.status.replace('_', '-')}`}
+                        className={`px-2 py-1 rounded-full text-xs font-medium ${
+                          post.status === 'posted'
+                            ? 'bg-green-100 text-green-700'
+                            : post.status === 'failed'
+                            ? 'bg-red-100 text-red-700'
+                            : post.status === 'scheduled'
+                            ? 'bg-blue-100 text-blue-700'
+                            : 'bg-gray-100 text-gray-600'
+                        }`}
                       >
-                        {post.status.replace('_', ' ')}
+                        {post.status}
                       </span>
                     </div>
                   </td>
                   <td className="px-4 py-4">
                     <p className="text-sm text-gray-900 line-clamp-2 max-w-md">
-                      {post.content.substring(0, 100)}...
+                      {post.content.substring(0, 100)}
+                      {post.content.length > 100 && '...'}
                     </p>
-                  </td>
-                  <td className="px-4 py-4">
-                    <span className="text-sm text-gray-600 capitalize">
-                      {post.content_type}
-                    </span>
                   </td>
                   <td className="px-4 py-4">
                     <div className="flex gap-1">
@@ -159,7 +217,7 @@ export default function PostHistory() {
                             className={`p-1 rounded ${
                               isPosted ? 'text-green-600' : 'text-gray-400'
                             }`}
-                            title={isPosted ? 'Posted' : 'Not posted'}
+                            title={`${platformLabels[platform] || platform}: ${isPosted ? 'Posted' : 'Not posted'}`}
                           >
                             <Icon className="w-4 h-4" />
                           </div>
@@ -174,6 +232,36 @@ export default function PostHistory() {
                     <p className="text-xs text-gray-400">
                       {format(new Date(post.created_at), 'h:mm a')}
                     </p>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex gap-2">
+                      {(post.status === 'draft' || post.status === 'failed') && (
+                        <button
+                          onClick={(e) => handlePublish(post.id, e)}
+                          disabled={publishing === post.id}
+                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Publish now"
+                        >
+                          {publishing === post.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Send className="w-4 h-4" />
+                          )}
+                        </button>
+                      )}
+                      <button
+                        onClick={(e) => handleDelete(post.id, e)}
+                        disabled={deleting === post.id}
+                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Delete"
+                      >
+                        {deleting === post.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -194,8 +282,18 @@ export default function PostHistory() {
           >
             <div className="p-6 border-b flex items-center justify-between">
               <h2 className="text-lg font-semibold">Post Details</h2>
-              <span className={`badge badge-${selectedPost.status.replace('_', '-')}`}>
-                {selectedPost.status.replace('_', ' ')}
+              <span
+                className={`px-3 py-1 rounded-full text-sm font-medium ${
+                  selectedPost.status === 'posted'
+                    ? 'bg-green-100 text-green-700'
+                    : selectedPost.status === 'failed'
+                    ? 'bg-red-100 text-red-700'
+                    : selectedPost.status === 'scheduled'
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'bg-gray-100 text-gray-600'
+                }`}
+              >
+                {selectedPost.status}
               </span>
             </div>
 
@@ -226,14 +324,25 @@ export default function PostHistory() {
                 </div>
               )}
 
+              {/* Video */}
+              {selectedPost.video_url && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-500 mb-2">
+                    Video URL
+                  </label>
+                  <a
+                    href={selectedPost.video_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:underline text-sm"
+                  >
+                    {selectedPost.video_url}
+                  </a>
+                </div>
+              )}
+
               {/* Meta Info */}
               <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">
-                    Content Type
-                  </label>
-                  <p className="capitalize">{selectedPost.content_type}</p>
-                </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-500 mb-1">
                     Word Count
@@ -261,38 +370,57 @@ export default function PostHistory() {
                     </p>
                   </div>
                 )}
+                {selectedPost.scheduled_time && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-500 mb-1">
+                      Scheduled For
+                    </label>
+                    <p>
+                      {format(
+                        new Date(selectedPost.scheduled_time),
+                        'MMM d, yyyy h:mm a'
+                      )}
+                    </p>
+                  </div>
+                )}
               </div>
 
               {/* Platform Results */}
-              {selectedPost.status === 'posted' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-2">
-                    Platform Results
-                  </label>
-                  <div className="space-y-2">
-                    {selectedPost.platforms.map((platform) => {
-                      const Icon = platformIcons[platform];
-                      const postId = selectedPost.posted_ids?.[platform];
-                      return (
-                        <div
-                          key={platform}
-                          className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg"
-                        >
-                          {Icon && <Icon className="w-5 h-5" />}
-                          <span className="capitalize flex-1">{platform}</span>
-                          {postId ? (
-                            <span className="text-sm text-green-600">
-                              Posted (ID: {postId.substring(0, 20)}...)
+              <div>
+                <label className="block text-sm font-medium text-gray-500 mb-2">
+                  Platforms
+                </label>
+                <div className="space-y-2">
+                  {selectedPost.platforms.map((platform) => {
+                    const Icon = platformIcons[platform];
+                    const postId = selectedPost.posted_ids?.[platform];
+                    return (
+                      <div
+                        key={platform}
+                        className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg"
+                      >
+                        {Icon && <Icon className="w-5 h-5" />}
+                        <span className="flex-1">{platformLabels[platform] || platform}</span>
+                        {selectedPost.status === 'posted' || selectedPost.status === 'failed' ? (
+                          postId ? (
+                            <span className="text-sm text-green-600 flex items-center gap-1">
+                              <CheckCircle className="w-4 h-4" />
+                              Posted
                             </span>
                           ) : (
-                            <span className="text-sm text-red-600">Failed</span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                            <span className="text-sm text-red-600 flex items-center gap-1">
+                              <XCircle className="w-4 h-4" />
+                              Failed
+                            </span>
+                          )
+                        ) : (
+                          <span className="text-sm text-gray-400">Pending</span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              )}
+              </div>
 
               {/* Error Message */}
               {selectedPost.error_message && (
@@ -309,7 +437,19 @@ export default function PostHistory() {
               )}
             </div>
 
-            <div className="p-6 border-t">
+            <div className="p-6 border-t flex gap-3">
+              {(selectedPost.status === 'draft' || selectedPost.status === 'failed') && (
+                <button
+                  onClick={(e) => {
+                    handlePublish(selectedPost.id, e);
+                    setSelectedPost(null);
+                  }}
+                  className="btn btn-primary flex items-center gap-2"
+                >
+                  <Send className="w-4 h-4" />
+                  Publish Now
+                </button>
+              )}
               <button
                 onClick={() => setSelectedPost(null)}
                 className="btn btn-secondary"

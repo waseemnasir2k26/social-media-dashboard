@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, JSONResponse
 from pydantic import BaseModel
@@ -11,11 +11,10 @@ import httpx
 import secrets
 import base64
 import hashlib
-from openai import OpenAI
-import re
+import asyncio
 
 # Initialize FastAPI
-app = FastAPI(title="Social Media Dashboard API")
+app = FastAPI(title="Social Media Dashboard API - Simple Posting Tool")
 
 # Get base URL for callbacks
 BASE_URL = os.environ.get("VERCEL_URL", "")
@@ -36,7 +35,7 @@ app.add_middleware(
 )
 
 # ============ Simple Token Storage ============
-# In production, use Vercel KV or Postgres
+# In production, use Vercel KV, Supabase, or Postgres
 # For now, using environment variables + in-memory cache
 
 tokens_cache: Dict[str, Dict[str, Any]] = {}
@@ -67,10 +66,23 @@ def get_stored_tokens() -> Dict[str, Any]:
             "page_id": os.environ.get("FACEBOOK_PAGE_ID", ""),
             "connected": bool(os.environ.get("FACEBOOK_PAGE_ACCESS_TOKEN")),
         },
-        "instagram": {
-            "access_token": os.environ.get("FACEBOOK_PAGE_ACCESS_TOKEN", ""),
-            "account_id": os.environ.get("INSTAGRAM_ACCOUNT_ID", ""),
-            "connected": bool(os.environ.get("INSTAGRAM_ACCOUNT_ID")),
+        "instagram_1": {
+            "access_token": os.environ.get("INSTAGRAM_1_ACCESS_TOKEN", os.environ.get("FACEBOOK_PAGE_ACCESS_TOKEN", "")),
+            "account_id": os.environ.get("INSTAGRAM_1_ACCOUNT_ID", os.environ.get("INSTAGRAM_ACCOUNT_ID", "")),
+            "account_name": os.environ.get("INSTAGRAM_1_NAME", "Instagram Account 1"),
+            "connected": bool(os.environ.get("INSTAGRAM_1_ACCOUNT_ID") or os.environ.get("INSTAGRAM_ACCOUNT_ID")),
+        },
+        "instagram_2": {
+            "access_token": os.environ.get("INSTAGRAM_2_ACCESS_TOKEN", ""),
+            "account_id": os.environ.get("INSTAGRAM_2_ACCOUNT_ID", ""),
+            "account_name": os.environ.get("INSTAGRAM_2_NAME", "Instagram Account 2"),
+            "connected": bool(os.environ.get("INSTAGRAM_2_ACCOUNT_ID")),
+        },
+        "youtube": {
+            "access_token": os.environ.get("YOUTUBE_ACCESS_TOKEN", ""),
+            "refresh_token": os.environ.get("YOUTUBE_REFRESH_TOKEN", ""),
+            "channel_id": os.environ.get("YOUTUBE_CHANNEL_ID", ""),
+            "connected": bool(os.environ.get("YOUTUBE_ACCESS_TOKEN")),
         },
     }
 
@@ -102,7 +114,14 @@ OAUTH_CONFIG = {
         "client_secret": os.environ.get("FACEBOOK_APP_SECRET", ""),
         "auth_url": "https://www.facebook.com/v18.0/dialog/oauth",
         "token_url": "https://graph.facebook.com/v18.0/oauth/access_token",
-        "scopes": ["pages_manage_posts", "pages_read_engagement", "instagram_basic", "instagram_content_publish"],
+        "scopes": ["pages_manage_posts", "pages_read_engagement", "instagram_basic", "instagram_content_publish", "business_management"],
+    },
+    "youtube": {
+        "client_id": os.environ.get("YOUTUBE_CLIENT_ID", os.environ.get("GOOGLE_CLIENT_ID", "")),
+        "client_secret": os.environ.get("YOUTUBE_CLIENT_SECRET", os.environ.get("GOOGLE_CLIENT_SECRET", "")),
+        "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_url": "https://oauth2.googleapis.com/token",
+        "scopes": ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube"],
     },
 }
 
@@ -113,32 +132,21 @@ pkce_verifiers: Dict[str, str] = {}
 
 # ============ Models ============
 
-class GenerateContentRequest(BaseModel):
-    content_type: str = "educational"
-    topic: Optional[str] = None
-    platforms: List[str] = ["linkedin"]
-    custom_prompt: Optional[str] = None
-    auto_post: bool = False
-
-
 class CreatePostRequest(BaseModel):
     content: str
     image_url: Optional[str] = None
-    image_prompt: Optional[str] = None
-    content_type: str = "custom"
-    topic: Optional[str] = None
+    video_url: Optional[str] = None
     platforms: List[str] = ["linkedin"]
-    auto_post: bool = False
     scheduled_time: Optional[str] = None
 
 
 class UpdatePostRequest(BaseModel):
     content: Optional[str] = None
     image_url: Optional[str] = None
+    video_url: Optional[str] = None
     platforms: Optional[List[str]] = None
     status: Optional[str] = None
     scheduled_time: Optional[str] = None
-    auto_post: Optional[bool] = None
 
 
 # ============ OAuth Helper Functions ============
@@ -157,15 +165,18 @@ def generate_pkce_pair():
 @app.get("/api/auth/{platform}/connect")
 async def oauth_connect(platform: str, request: Request):
     """Initiate OAuth flow for a platform."""
-    if platform not in OAUTH_CONFIG:
+    # Handle instagram variants
+    actual_platform = "facebook" if platform.startswith("instagram") else platform
+
+    if actual_platform not in OAUTH_CONFIG:
         raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
 
-    config = OAUTH_CONFIG[platform]
+    config = OAUTH_CONFIG[actual_platform]
 
     if not config["client_id"]:
         raise HTTPException(
             status_code=400,
-            detail=f"{platform} OAuth not configured. Add {platform.upper()}_CLIENT_ID to environment."
+            detail=f"{platform} OAuth not configured. Add {actual_platform.upper()}_CLIENT_ID to environment."
         )
 
     # Generate state for CSRF protection
@@ -191,6 +202,11 @@ async def oauth_connect(platform: str, request: Request):
         params["code_challenge"] = challenge
         params["code_challenge_method"] = "S256"
 
+    # YouTube/Google specific
+    if platform == "youtube":
+        params["access_type"] = "offline"
+        params["prompt"] = "consent"
+
     auth_url = f"{config['auth_url']}?{urlencode(params)}"
 
     return {"auth_url": auth_url}
@@ -213,7 +229,9 @@ async def oauth_callback(platform: str, code: str = None, state: str = None, err
 
     del oauth_states[state]
 
-    config = OAUTH_CONFIG[platform]
+    # Handle instagram variants
+    actual_platform = "facebook" if platform.startswith("instagram") else platform
+    config = OAUTH_CONFIG[actual_platform]
     callback_url = f"{BASE_URL}/api/auth/{platform}/callback"
 
     try:
@@ -266,7 +284,13 @@ async def oauth_callback(platform: str, code: str = None, state: str = None, err
                     "refresh_token": tokens.get("refresh_token"),
                 })
 
-            elif platform == "facebook":
+            elif platform == "youtube":
+                save_token("youtube", {
+                    "access_token": tokens.get("access_token"),
+                    "refresh_token": tokens.get("refresh_token"),
+                })
+
+            elif platform == "facebook" or platform.startswith("instagram"):
                 # Get long-lived token
                 long_token_response = await client.get(
                     "https://graph.facebook.com/v18.0/oauth/access_token",
@@ -288,28 +312,47 @@ async def oauth_callback(platform: str, code: str = None, state: str = None, err
 
                 if pages:
                     page = pages[0]  # Use first page
-                    save_token("facebook", {
-                        "access_token": page.get("access_token"),
-                        "page_id": page.get("id"),
-                        "page_name": page.get("name"),
-                    })
 
-                    # Get Instagram account linked to this page
-                    ig_response = await client.get(
-                        f"https://graph.facebook.com/v18.0/{page['id']}",
-                        params={
-                            "fields": "instagram_business_account",
+                    if platform == "facebook":
+                        save_token("facebook", {
                             "access_token": page.get("access_token"),
-                        }
-                    )
-                    ig_data = ig_response.json()
-                    ig_account = ig_data.get("instagram_business_account", {})
-
-                    if ig_account:
-                        save_token("instagram", {
-                            "access_token": page.get("access_token"),
-                            "account_id": ig_account.get("id"),
+                            "page_id": page.get("id"),
+                            "page_name": page.get("name"),
                         })
+
+                    # Get Instagram accounts linked to pages
+                    ig_accounts = []
+                    for p in pages:
+                        ig_response = await client.get(
+                            f"https://graph.facebook.com/v18.0/{p['id']}",
+                            params={
+                                "fields": "instagram_business_account{id,username}",
+                                "access_token": p.get("access_token"),
+                            }
+                        )
+                        ig_data = ig_response.json()
+                        ig_account = ig_data.get("instagram_business_account", {})
+                        if ig_account:
+                            ig_accounts.append({
+                                "account_id": ig_account.get("id"),
+                                "username": ig_account.get("username", "Unknown"),
+                                "access_token": p.get("access_token"),
+                            })
+
+                    # Save Instagram accounts
+                    if platform.startswith("instagram") or platform == "facebook":
+                        if len(ig_accounts) >= 1:
+                            save_token("instagram_1", {
+                                "access_token": ig_accounts[0]["access_token"],
+                                "account_id": ig_accounts[0]["account_id"],
+                                "account_name": ig_accounts[0]["username"],
+                            })
+                        if len(ig_accounts) >= 2:
+                            save_token("instagram_2", {
+                                "access_token": ig_accounts[1]["access_token"],
+                                "account_id": ig_accounts[1]["account_id"],
+                                "account_name": ig_accounts[1]["username"],
+                            })
 
             return RedirectResponse(f"{FRONTEND_URL}/settings?connected={platform}")
 
@@ -326,97 +369,9 @@ async def oauth_disconnect(platform: str):
     return {"success": True, "message": f"{platform} disconnected"}
 
 
-# ============ OpenAI Service ============
-
-def get_openai_client():
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
-    return OpenAI(api_key=api_key)
-
-
-def get_educational_prompt(platforms: str) -> str:
-    return f"""You are a tech founder and AI expert. Write educational content for: {platforms}
-
-Style: Direct, punchy, no fluff. Like Alex Hormozi meets Justin Welsh.
-
-STRUCTURE:
-1. HOOK (first line): Under 50 characters. Pattern interrupt.
-2. RE-HOOK: One sentence explaining what they'll learn
-3. BODY: Use "→" bullets. 5-7 points maximum. Short sentences.
-4. TAKEAWAY: One powerful sentence
-5. CTA: Question or invite saves/shares
-6. HASHTAGS: Include 10-15 relevant hashtags
-
-RULES:
-- 80-150 words
-- Maximum 2 emojis
-- Each line is its own paragraph
-- Be SPECIFIC with numbers and examples
-
-Output ONLY valid JSON:
-{{"content": "[full post with hashtags]", "image_prompt": "[optional image description]"}}"""
-
-
-def get_motivation_prompt(platforms: str) -> str:
-    return f"""You are a tech founder sharing wisdom for: {platforms}
-
-Style: Short, punchy, quotable. Like Alex Hormozi.
-
-STRUCTURE:
-"[Bold statement]
-
-[2-3 sentences expanding with personal touch]
-
-[One-line takeaway]
-
-Save this."
-
-RULES:
-- 40-80 words MAXIMUM
-- Each line is its own paragraph
-- NO corporate speak
-- 0-2 emojis only
-- 10+ hashtags at the end
-- Make it quotable
-
-Output ONLY JSON:
-{{"content": "[full post with hashtags]", "image_prompt": "[optional image description]"}}"""
-
-
-def get_general_prompt(platforms: str) -> str:
-    return f"""You are a tech founder creating content for: {platforms}
-
-Create engaging, valuable content that resonates with professionals.
-
-RULES:
-- Be authentic and specific
-- Include a clear takeaway
-- End with engagement prompt
-- Include 10-15 relevant hashtags
-- 50-150 words
-
-Output ONLY JSON:
-{{"content": "[full post with hashtags]", "image_prompt": "[optional image description]"}}"""
-
-
-def parse_ai_response(raw: str) -> dict:
-    try:
-        json_str = re.sub(r'^```json\s*', '', raw, flags=re.IGNORECASE)
-        json_str = re.sub(r'```$', '', json_str)
-        start = json_str.find('{')
-        end = json_str.rfind('}')
-        if start != -1 and end != -1:
-            json_str = json_str[start:end + 1]
-            return json.loads(json_str)
-    except json.JSONDecodeError:
-        pass
-    return {"content": raw}
-
-
 # ============ Social Media Posting ============
 
-async def post_to_linkedin(content: str) -> dict:
+async def post_to_linkedin(content: str, image_url: Optional[str] = None) -> dict:
     tokens = get_stored_tokens().get("linkedin", {})
     access_token = tokens.get("access_token")
 
@@ -463,7 +418,7 @@ async def post_to_linkedin(content: str) -> dict:
         return {"success": False, "error": str(e)}
 
 
-async def post_to_twitter(content: str) -> dict:
+async def post_to_twitter(content: str, image_url: Optional[str] = None) -> dict:
     tokens = get_stored_tokens().get("twitter", {})
     access_token = tokens.get("access_token")
 
@@ -492,7 +447,7 @@ async def post_to_twitter(content: str) -> dict:
         return {"success": False, "error": str(e)}
 
 
-async def post_to_facebook(content: str) -> dict:
+async def post_to_facebook(content: str, image_url: Optional[str] = None, video_url: Optional[str] = None) -> dict:
     tokens = get_stored_tokens().get("facebook", {})
     access_token = tokens.get("access_token")
     page_id = tokens.get("page_id")
@@ -502,10 +457,36 @@ async def post_to_facebook(content: str) -> dict:
 
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"https://graph.facebook.com/v18.0/{page_id}/feed",
-                params={"access_token": access_token, "message": content}
-            )
+            if video_url:
+                # Post video
+                response = await client.post(
+                    f"https://graph.facebook.com/v18.0/{page_id}/videos",
+                    params={
+                        "access_token": access_token,
+                        "file_url": video_url,
+                        "description": content
+                    }
+                )
+            elif image_url:
+                # Post with image
+                response = await client.post(
+                    f"https://graph.facebook.com/v18.0/{page_id}/photos",
+                    params={
+                        "access_token": access_token,
+                        "url": image_url,
+                        "message": content
+                    }
+                )
+            else:
+                # Text-only post
+                response = await client.post(
+                    f"https://graph.facebook.com/v18.0/{page_id}/feed",
+                    params={
+                        "access_token": access_token,
+                        "message": content
+                    }
+                )
+
             data = response.json()
             if "id" in data:
                 return {"success": True, "post_id": data["id"]}
@@ -514,31 +495,61 @@ async def post_to_facebook(content: str) -> dict:
         return {"success": False, "error": str(e)}
 
 
-async def post_to_instagram(content: str, image_url: str) -> dict:
-    tokens = get_stored_tokens().get("instagram", {})
+async def post_to_instagram(account_key: str, content: str, image_url: str = None, video_url: str = None) -> dict:
+    """Post to Instagram. Supports instagram_1 or instagram_2."""
+    tokens = get_stored_tokens().get(account_key, {})
     access_token = tokens.get("access_token")
     account_id = tokens.get("account_id")
 
     if not access_token or not account_id:
-        return {"success": False, "error": "Instagram not connected"}
+        return {"success": False, "error": f"{account_key} not connected"}
 
-    if not image_url:
-        return {"success": False, "error": "Instagram requires an image"}
+    if not image_url and not video_url:
+        return {"success": False, "error": "Instagram requires an image or video"}
 
     try:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            # Step 1: Create media container
+            params = {
+                "access_token": access_token,
+                "caption": content
+            }
+
+            if video_url:
+                params["video_url"] = video_url
+                params["media_type"] = "REELS"
+            else:
+                params["image_url"] = image_url
+
             container_response = await client.post(
                 f"https://graph.facebook.com/v18.0/{account_id}/media",
-                params={"access_token": access_token, "image_url": image_url, "caption": content}
+                params=params
             )
             container_data = container_response.json()
 
             if "id" not in container_data:
                 return {"success": False, "error": container_data.get("error", {}).get("message", "Failed")}
 
+            container_id = container_data["id"]
+
+            # Step 2: Wait for video processing (if video)
+            if video_url:
+                for _ in range(30):  # Wait up to 5 minutes
+                    status_response = await client.get(
+                        f"https://graph.facebook.com/v18.0/{container_id}",
+                        params={"access_token": access_token, "fields": "status_code"}
+                    )
+                    status = status_response.json().get("status_code")
+                    if status == "FINISHED":
+                        break
+                    elif status == "ERROR":
+                        return {"success": False, "error": "Video processing failed"}
+                    await asyncio.sleep(10)
+
+            # Step 3: Publish the container
             publish_response = await client.post(
                 f"https://graph.facebook.com/v18.0/{account_id}/media_publish",
-                params={"access_token": access_token, "creation_id": container_data["id"]}
+                params={"access_token": access_token, "creation_id": container_id}
             )
             publish_data = publish_response.json()
 
@@ -549,11 +560,53 @@ async def post_to_instagram(content: str, image_url: str) -> dict:
         return {"success": False, "error": str(e)}
 
 
+async def post_to_youtube(content: str, video_url: str, title: str = None) -> dict:
+    """Post video to YouTube."""
+    tokens = get_stored_tokens().get("youtube", {})
+    access_token = tokens.get("access_token")
+
+    if not access_token:
+        return {"success": False, "error": "YouTube not connected"}
+
+    if not video_url:
+        return {"success": False, "error": "YouTube requires a video URL"}
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            # For YouTube, we need to download the video first and upload
+            # This is a simplified version - full implementation would need resumable uploads
+
+            video_title = title or content[:100] if content else "Video"
+
+            # YouTube Data API video insert
+            metadata = {
+                "snippet": {
+                    "title": video_title,
+                    "description": content,
+                    "categoryId": "22"  # People & Blogs
+                },
+                "status": {
+                    "privacyStatus": "public",
+                    "selfDeclaredMadeForKids": False
+                }
+            }
+
+            # Note: Full YouTube upload requires multipart upload
+            # For now, return guidance
+            return {
+                "success": False,
+                "error": "YouTube upload requires video file upload. Use YouTube Studio for now.",
+                "note": "Full YouTube API integration coming soon"
+            }
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 # ============ API Routes ============
 
 @app.get("/api")
 async def root():
-    return {"message": "Social Media Dashboard API", "status": "running"}
+    return {"message": "Social Media Dashboard API - Simple Posting Tool", "status": "running"}
 
 
 @app.get("/api/health")
@@ -570,11 +623,10 @@ async def get_platform_status():
         "linkedin": bool(OAUTH_CONFIG["linkedin"]["client_id"]),
         "twitter": bool(OAUTH_CONFIG["twitter"]["client_id"]),
         "facebook": bool(OAUTH_CONFIG["facebook"]["client_id"]),
-        "instagram": bool(OAUTH_CONFIG["facebook"]["client_id"]),  # Uses Facebook OAuth
+        "instagram_1": bool(OAUTH_CONFIG["facebook"]["client_id"]),
+        "instagram_2": bool(OAUTH_CONFIG["facebook"]["client_id"]),
+        "youtube": bool(OAUTH_CONFIG["youtube"]["client_id"]),
     }
-
-    # Check OpenAI configuration
-    openai_configured = bool(os.environ.get("OPENAI_API_KEY"))
 
     return {
         "platforms": {
@@ -591,88 +643,22 @@ async def get_platform_status():
                 "oauth_configured": oauth_configured["facebook"],
                 "page_name": tokens.get("facebook", {}).get("page_name", ""),
             },
-            "instagram": {
-                "connected": tokens.get("instagram", {}).get("connected", False),
-                "oauth_configured": oauth_configured["instagram"],
+            "instagram_1": {
+                "connected": tokens.get("instagram_1", {}).get("connected", False),
+                "oauth_configured": oauth_configured["instagram_1"],
+                "account_name": tokens.get("instagram_1", {}).get("account_name", "Instagram 1"),
+            },
+            "instagram_2": {
+                "connected": tokens.get("instagram_2", {}).get("connected", False),
+                "oauth_configured": oauth_configured["instagram_2"],
+                "account_name": tokens.get("instagram_2", {}).get("account_name", "Instagram 2"),
+            },
+            "youtube": {
+                "connected": tokens.get("youtube", {}).get("connected", False),
+                "oauth_configured": oauth_configured["youtube"],
             },
         },
-        "openai_configured": openai_configured,
     }
-
-
-@app.post("/api/posts/generate")
-async def generate_content(request: GenerateContentRequest):
-    client = get_openai_client()
-    platform_str = ", ".join(request.platforms)
-
-    if request.content_type == "educational":
-        system_prompt = get_educational_prompt(platform_str)
-    elif request.content_type == "motivation":
-        system_prompt = get_motivation_prompt(platform_str)
-    else:
-        system_prompt = get_general_prompt(platform_str)
-
-    user_prompt = f"Create a post about: {request.topic}" if request.topic else "Create an engaging post."
-    if request.custom_prompt:
-        user_prompt = request.custom_prompt
-
-    try:
-        response = client.chat.completions.create(
-            model=os.environ.get("OPENAI_MODEL", "gpt-4o"),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            max_tokens=1500,
-            temperature=0.85
-        )
-
-        raw = response.choices[0].message.content.strip()
-        parsed = parse_ai_response(raw)
-
-        global post_counter
-        post_counter += 1
-        post = {
-            "id": post_counter,
-            "content": parsed.get("content", raw),
-            "image_prompt": parsed.get("image_prompt", ""),
-            "image_url": None,
-            "content_type": request.content_type,
-            "topic": request.topic,
-            "platforms": request.platforms,
-            "status": "pending_approval",
-            "auto_post": request.auto_post,
-            "scheduled_time": None,
-            "posted_ids": {},
-            "posted_time": None,
-            "error_message": None,
-            "word_count": len(parsed.get("content", raw).split()),
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-        posts_db[post_counter] = post
-
-        return {"success": True, "post": post, "generation_result": parsed}
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/posts/generate-image")
-async def generate_image(prompt: str = Query(...)):
-    client = get_openai_client()
-
-    try:
-        response = client.images.generate(
-            model="dall-e-3",
-            prompt=prompt,
-            size="1024x1024",
-            quality="standard",
-            n=1
-        )
-        return {"success": True, "image_url": response.data[0].url}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/posts")
@@ -684,12 +670,9 @@ async def create_post(request: CreatePostRequest):
         "id": post_counter,
         "content": request.content,
         "image_url": request.image_url,
-        "image_prompt": request.image_prompt,
-        "content_type": request.content_type,
-        "topic": request.topic,
+        "video_url": request.video_url,
         "platforms": request.platforms,
         "status": "scheduled" if request.scheduled_time else "draft",
-        "auto_post": request.auto_post,
         "scheduled_time": request.scheduled_time,
         "posted_ids": {},
         "posted_time": None,
@@ -706,7 +689,6 @@ async def create_post(request: CreatePostRequest):
 @app.get("/api/posts")
 async def list_posts(
     status: Optional[str] = None,
-    content_type: Optional[str] = None,
     limit: int = Query(default=50, le=100),
     offset: int = 0
 ):
@@ -714,8 +696,6 @@ async def list_posts(
 
     if status:
         posts = [p for p in posts if p["status"] == status]
-    if content_type:
-        posts = [p for p in posts if p["content_type"] == content_type]
 
     posts = sorted(posts, key=lambda x: x["created_at"], reverse=True)
     posts = posts[offset:offset + limit]
@@ -742,29 +722,18 @@ async def update_post(post_id: int, request: UpdatePostRequest):
         post["word_count"] = len(request.content.split())
     if request.image_url is not None:
         post["image_url"] = request.image_url
+    if request.video_url is not None:
+        post["video_url"] = request.video_url
     if request.platforms is not None:
         post["platforms"] = request.platforms
     if request.status is not None:
         post["status"] = request.status
     if request.scheduled_time is not None:
         post["scheduled_time"] = request.scheduled_time
-    if request.auto_post is not None:
-        post["auto_post"] = request.auto_post
 
     post["updated_at"] = datetime.utcnow().isoformat()
 
     return {"success": True, "post": post}
-
-
-@app.post("/api/posts/{post_id}/approve")
-async def approve_post(post_id: int):
-    if post_id not in posts_db:
-        raise HTTPException(status_code=404, detail="Post not found")
-
-    posts_db[post_id]["status"] = "approved"
-    posts_db[post_id]["updated_at"] = datetime.utcnow().isoformat()
-
-    return {"success": True, "post": posts_db[post_id]}
 
 
 @app.post("/api/posts/{post_id}/publish")
@@ -776,18 +745,23 @@ async def publish_post(post_id: int):
     content = post["content"]
     platforms = post["platforms"]
     image_url = post.get("image_url")
+    video_url = post.get("video_url")
 
     results = {}
 
     for platform in platforms:
         if platform == "linkedin":
-            results["linkedin"] = await post_to_linkedin(content)
+            results["linkedin"] = await post_to_linkedin(content, image_url)
         elif platform == "twitter":
-            results["twitter"] = await post_to_twitter(content)
+            results["twitter"] = await post_to_twitter(content, image_url)
         elif platform == "facebook":
-            results["facebook"] = await post_to_facebook(content)
-        elif platform == "instagram":
-            results["instagram"] = await post_to_instagram(content, image_url or "")
+            results["facebook"] = await post_to_facebook(content, image_url, video_url)
+        elif platform == "instagram_1":
+            results["instagram_1"] = await post_to_instagram("instagram_1", content, image_url, video_url)
+        elif platform == "instagram_2":
+            results["instagram_2"] = await post_to_instagram("instagram_2", content, image_url, video_url)
+        elif platform == "youtube":
+            results["youtube"] = await post_to_youtube(content, video_url)
 
     all_success = all(r.get("success", False) for r in results.values()) if results else False
 
@@ -821,7 +795,9 @@ async def delete_post(post_id: int):
 
 @app.get("/api/platforms/scheduler/jobs")
 async def get_scheduler_jobs():
-    return {"jobs": [], "total": 0}
+    # Return scheduled posts
+    scheduled = [p for p in posts_db.values() if p["status"] == "scheduled"]
+    return {"jobs": scheduled, "total": len(scheduled)}
 
 
 # Vercel serverless handler
