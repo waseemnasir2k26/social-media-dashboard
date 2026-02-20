@@ -274,6 +274,32 @@ class InstagramService:
             return {"success": False, "error": str(e), "platform": "instagram"}
 
 
+class YouTubeService:
+    """YouTube API Service (via Google APIs)."""
+
+    def __init__(self):
+        # YouTube requires additional OAuth setup - placeholder for now
+        self.enabled = False
+        self.access_token = None
+        self.base_url = "https://www.googleapis.com/youtube/v3"
+
+    async def post(self, content: str, video_url: Optional[str] = None) -> Dict[str, Any]:
+        """
+        YouTube video upload requires:
+        1. OAuth2 with youtube.upload scope
+        2. A video file (not just URL)
+        3. Video metadata (title, description, etc.)
+        """
+        if not self.enabled:
+            return {"success": False, "error": "YouTube not configured. Please set up YouTube OAuth credentials.", "platform": "youtube"}
+
+        if not video_url:
+            return {"success": False, "error": "YouTube requires a video file", "platform": "youtube"}
+
+        # TODO: Implement actual YouTube upload when OAuth is configured
+        return {"success": False, "error": "YouTube upload not yet implemented", "platform": "youtube"}
+
+
 class SocialMediaManager:
     """Unified manager for all social media platforms."""
 
@@ -282,6 +308,7 @@ class SocialMediaManager:
         self.linkedin = LinkedInService()
         self.facebook = FacebookService()
         self.instagram = InstagramService()
+        self.youtube = YouTubeService()
 
     def get_enabled_platforms(self) -> Dict[str, bool]:
         """Return which platforms are configured."""
@@ -289,7 +316,8 @@ class SocialMediaManager:
             "twitter": self.twitter.enabled,
             "linkedin": self.linkedin.enabled,
             "facebook": self.facebook.enabled,
-            "instagram": self.instagram.enabled
+            "instagram": self.instagram.enabled,
+            "youtube": self.youtube.enabled,
         }
 
     async def post_to_platforms(
@@ -312,15 +340,26 @@ class SocialMediaManager:
             elif platform == "facebook" and self.facebook.enabled:
                 results["facebook"] = await self.facebook.post(content, image_url)
 
-            elif platform == "instagram" and self.instagram.enabled:
-                if image_url:
-                    results["instagram"] = await self.instagram.post(content, image_url)
+            elif platform == "instagram" or platform.startswith("instagram_"):
+                if self.instagram.enabled:
+                    if image_url:
+                        results[platform] = await self.instagram.post(content, image_url)
+                    else:
+                        results[platform] = {
+                            "success": False,
+                            "error": "Instagram requires an image",
+                            "platform": platform
+                        }
                 else:
-                    results["instagram"] = {
+                    results[platform] = {
                         "success": False,
-                        "error": "Instagram requires an image",
-                        "platform": "instagram"
+                        "error": "Instagram not configured",
+                        "platform": platform
                     }
+
+            elif platform == "youtube":
+                results["youtube"] = await self.youtube.post(content, image_url)  # video_url passed as image_url for now
+
             else:
                 results[platform] = {
                     "success": False,

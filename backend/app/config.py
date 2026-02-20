@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings
 from functools import lru_cache
 from typing import Optional
+import os
 
 
 class Settings(BaseSettings):
@@ -8,8 +9,8 @@ class Settings(BaseSettings):
     app_name: str = "Social Media Dashboard"
     debug: bool = False
 
-    # Security
-    secret_key: str = "change-this-in-production"
+    # Security - MUST set SECRET_KEY environment variable in production
+    secret_key: str = os.environ.get("SECRET_KEY", "dev-only-change-in-production-" + os.urandom(16).hex())
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60 * 24 * 7  # 7 days
 

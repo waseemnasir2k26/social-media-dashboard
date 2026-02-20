@@ -406,10 +406,10 @@ export default function Settings() {
           Add these URLs to your OAuth app settings on each platform:
         </p>
         <div className="bg-gray-900 text-green-400 rounded-lg p-4 font-mono text-sm overflow-x-auto">
-          <pre>{`Facebook:  https://social-media-dashboard-five-zeta.vercel.app/api/auth/facebook/callback
-Twitter:   https://social-media-dashboard-five-zeta.vercel.app/api/auth/twitter/callback
-YouTube:   https://social-media-dashboard-five-zeta.vercel.app/api/auth/youtube/callback
-LinkedIn:  https://social-media-dashboard-five-zeta.vercel.app/api/auth/linkedin/callback`}</pre>
+          <pre>{`Facebook:  ${window.location.origin}/api/auth/facebook/callback
+Twitter:   ${window.location.origin}/api/auth/twitter/callback
+YouTube:   ${window.location.origin}/api/auth/youtube/callback
+LinkedIn:  ${window.location.origin}/api/auth/linkedin/callback`}</pre>
         </div>
       </div>
     </div>

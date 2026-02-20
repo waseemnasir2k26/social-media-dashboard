@@ -18,7 +18,9 @@ async def get_platform_status():
         "linkedin": bool(settings.linkedin_client_id),
         "twitter": bool(settings.twitter_api_key),
         "facebook": bool(settings.facebook_app_id),
-        "instagram": bool(settings.facebook_app_id),  # Uses Facebook OAuth
+        "instagram_1": bool(settings.facebook_app_id),  # Uses Facebook OAuth
+        "instagram_2": bool(settings.facebook_app_id),  # Uses Facebook OAuth
+        "youtube": False,  # YouTube OAuth not yet configured in settings
     }
 
     # Format response to match frontend expectations
@@ -35,9 +37,17 @@ async def get_platform_status():
             "connected": enabled.get("facebook", False),
             "oauth_configured": oauth_configured["facebook"],
         },
-        "instagram": {
+        "instagram_1": {
             "connected": enabled.get("instagram", False),
-            "oauth_configured": oauth_configured["instagram"],
+            "oauth_configured": oauth_configured["instagram_1"],
+        },
+        "instagram_2": {
+            "connected": False,  # Second Instagram account
+            "oauth_configured": oauth_configured["instagram_2"],
+        },
+        "youtube": {
+            "connected": False,  # YouTube not yet implemented
+            "oauth_configured": oauth_configured["youtube"],
         },
     }
 
