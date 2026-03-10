@@ -2,31 +2,30 @@ import { Outlet, NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   PenSquare,
-  History,
+  Clock,
   Settings,
-  Share2,
+  Linkedin,
 } from 'lucide-react';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/create', icon: PenSquare, label: 'Create Post' },
-  { to: '/history', icon: History, label: 'Post History' },
+  { to: '/history', icon: Clock, label: 'Queue' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 export default function Layout() {
   return (
     <div className="min-h-screen flex">
-      {/* Sidebar */}
       <aside className="w-64 bg-gray-900 text-white flex flex-col">
         <div className="p-6 border-b border-gray-800">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-              <Share2 className="w-6 h-6" />
+              <Linkedin className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="font-bold text-lg">Social Hub</h1>
-              <p className="text-xs text-gray-400">Simple Posting Tool</p>
+              <h1 className="font-bold text-lg">SkynetJoe</h1>
+              <p className="text-xs text-gray-400">LinkedIn Poster</p>
             </div>
           </div>
         </div>
@@ -37,6 +36,7 @@ export default function Layout() {
               <li key={item.to}>
                 <NavLink
                   to={item.to}
+                  end={item.to === '/'}
                   className={({ isActive }) =>
                     `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
                       isActive
@@ -55,17 +55,12 @@ export default function Layout() {
 
         <div className="p-4 border-t border-gray-800">
           <div className="bg-gray-800 rounded-lg p-4">
-            <p className="text-sm text-gray-400">
-              Free Social Media Dashboard
-            </p>
-            <p className="text-xs text-gray-500 mt-1">
-              Post to 6 platforms at once
-            </p>
+            <p className="text-sm text-gray-400">Powered by n8n</p>
+            <p className="text-xs text-gray-500 mt-1">Self-hosted automation</p>
           </div>
         </div>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 overflow-auto">
         <Outlet />
       </main>

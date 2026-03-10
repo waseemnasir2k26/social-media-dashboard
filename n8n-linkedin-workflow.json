@@ -1,0 +1,249 @@
+{
+  "name": "SkynetJoe LinkedIn Poster",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "linkedin-post",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "wh-001",
+      "name": "Receive Post",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 340],
+      "webhookId": "skynetjoe-linkedin"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first();\n\n// Extract text fields from webhook body\nconst body = item.json.body || item.json;\nconst caption = body.caption || '';\nconst scheduledDate = body.scheduledDate || '';\n\n// Determine if this is a scheduled post\nconst now = new Date();\nconst scheduleTime = scheduledDate ? new Date(scheduledDate) : null;\nconst hasSchedule = !!(scheduleTime && scheduleTime > now);\n\n// Normalize binary property name to 'image' for downstream nodes\nconst binary = {};\nconst keys = Object.keys(item.binary || {});\nif (keys.length > 0) {\n  binary.image = item.binary[keys[0]];\n}\n\nreturn [{\n  json: {\n    caption,\n    scheduledDate: scheduledDate || null,\n    hasSchedule,\n    timestamp: now.toISOString()\n  },\n  binary\n}];"
+      },
+      "id": "code-001",
+      "name": "Normalize Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 340]
+    },
+    {
+      "parameters": {
+        "name": "={{ 'linkedin_' + $now.format('yyyy-MM-dd_HHmmss') + '.jpg' }}",
+        "options": {}
+      },
+      "id": "gdrive-001",
+      "name": "Archive to Drive",
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [680, 540],
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.hasSchedule }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-001",
+      "name": "Check Schedule",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 340]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ JSON.stringify({ status: 'scheduled', scheduledFor: $json.scheduledDate, message: 'Post scheduled successfully' }) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "respond-sched-001",
+      "name": "Respond Scheduled",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [920, 240]
+    },
+    {
+      "parameters": {
+        "resume": "specificTime",
+        "dateTime": "={{ $json.scheduledDate }}"
+      },
+      "id": "wait-001",
+      "name": "Wait Until Time",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [1140, 240]
+    },
+    {
+      "parameters": {
+        "person": "",
+        "text": "={{ $json.caption }}",
+        "shareMediaCategory": "IMAGE",
+        "binaryPropertyName": "image"
+      },
+      "id": "linkedin-sched-001",
+      "name": "LinkedIn Scheduled",
+      "type": "n8n-nodes-base.linkedIn",
+      "typeVersion": 1,
+      "position": [1360, 240],
+      "credentials": {
+        "linkedInOAuth2Api": {
+          "id": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "parameters": {
+        "person": "",
+        "text": "={{ $json.caption }}",
+        "shareMediaCategory": "IMAGE",
+        "binaryPropertyName": "image"
+      },
+      "id": "linkedin-now-001",
+      "name": "Post to LinkedIn",
+      "type": "n8n-nodes-base.linkedIn",
+      "typeVersion": 1,
+      "position": [920, 440],
+      "credentials": {
+        "linkedInOAuth2Api": {
+          "id": "",
+          "name": ""
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ JSON.stringify({ status: 'posted', message: 'Posted to LinkedIn successfully' }) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "respond-posted-001",
+      "name": "Respond Posted",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1140, 440]
+    },
+    {
+      "parameters": {
+        "content": "## SkynetJoe LinkedIn Poster\n\n### Setup (after importing):\n1. **Google Drive** → Click 'Archive to Drive' → Add Google Drive OAuth2 credentials → Pick a folder\n2. **LinkedIn** → Click BOTH LinkedIn nodes → Add LinkedIn OAuth2 credentials → Select your profile\n3. **Activate** the workflow (toggle top-right)\n4. **Copy** the Production URL from 'Receive Post' webhook node\n5. **Paste** it in your web app's Settings page\n\n### How it works:\n- Web app sends image + caption via webhook\n- Image is archived to Google Drive\n- If scheduled: responds immediately, waits, then posts at scheduled time\n- If immediate: posts to LinkedIn right away, then responds\n\n### LinkedIn OAuth2 setup in n8n:\n- Go to linkedin.com/developers → Create app\n- Enable 'Share on LinkedIn' product\n- Add n8n OAuth callback URL as redirect URI\n- Use Client ID + Secret in n8n credential",
+        "height": 460,
+        "width": 480,
+        "color": 4
+      },
+      "id": "sticky-001",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, -140]
+    },
+    {
+      "parameters": {
+        "content": "### SCHEDULED PATH\nResponds to website immediately,\nthen waits and posts at scheduled time.",
+        "height": 100,
+        "width": 560,
+        "color": 1
+      },
+      "id": "sticky-002",
+      "name": "Sticky Note1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [880, 160]
+    },
+    {
+      "parameters": {
+        "content": "### IMMEDIATE PATH\nPosts to LinkedIn right away,\nthen responds with result.",
+        "height": 100,
+        "width": 340,
+        "color": 3
+      },
+      "id": "sticky-003",
+      "name": "Sticky Note2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [880, 380]
+    }
+  ],
+  "connections": {
+    "Receive Post": {
+      "main": [
+        [
+          { "node": "Normalize Data", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Normalize Data": {
+      "main": [
+        [
+          { "node": "Archive to Drive", "type": "main", "index": 0 },
+          { "node": "Check Schedule", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Check Schedule": {
+      "main": [
+        [
+          { "node": "Respond Scheduled", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Post to LinkedIn", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Respond Scheduled": {
+      "main": [
+        [
+          { "node": "Wait Until Time", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Wait Until Time": {
+      "main": [
+        [
+          { "node": "LinkedIn Scheduled", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Post to LinkedIn": {
+      "main": [
+        [
+          { "node": "Respond Posted", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}

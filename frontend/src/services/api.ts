@@ -1,100 +1,164 @@
-import axios from 'axios';
+// ============================================
+// SkynetJoe LinkedIn Poster - API Service
+// Talks to n8n webhook, stores history locally
+// ============================================
 
-// In production (Vercel), API is at /api
-// In development, proxy handles it
-const API_BASE_URL = import.meta.env.PROD ? '/api' : '/api';
+// --- Webhook Config ---
 
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  headers: {
-    'Content-Type': 'application/json',
-  },
-});
-
-export interface Post {
-  id: number;
-  content: string;
-  image_url?: string;
-  video_url?: string;
-  word_count: number;
-  status: string;
-  scheduled_time?: string;
-  platforms: string[];
-  posted_ids: Record<string, string>;
-  posted_time?: string;
-  error_message?: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CreatePostRequest {
-  content: string;
-  image_url?: string;
-  video_url?: string;
-  platforms: string[];
-  scheduled_time?: string;
-}
-
-export interface PlatformInfo {
-  connected: boolean;
-  oauth_configured: boolean;
-  page_name?: string;
-  account_name?: string;
-}
-
-export interface PlatformStatus {
-  twitter: PlatformInfo;
-  linkedin: PlatformInfo;
-  facebook: PlatformInfo;
-  instagram_1: PlatformInfo;
-  instagram_2: PlatformInfo;
-  youtube: PlatformInfo;
-}
-
-// Posts API
-export const postsApi = {
-  async list(params?: { status?: string; limit?: number; offset?: number }) {
-    const response = await api.get('/posts', { params });
-    return response.data;
-  },
-
-  async get(id: number) {
-    const response = await api.get(`/posts/${id}`);
-    return response.data;
-  },
-
-  async create(data: CreatePostRequest) {
-    const response = await api.post('/posts', data);
-    return response.data;
-  },
-
-  async update(id: number, data: Partial<Post>) {
-    const response = await api.patch(`/posts/${id}`, data);
-    return response.data;
-  },
-
-  async delete(id: number) {
-    const response = await api.delete(`/posts/${id}`);
-    return response.data;
-  },
-
-  async publish(id: number) {
-    const response = await api.post(`/posts/${id}/publish`);
-    return response.data;
-  },
+export const getWebhookUrl = (): string => {
+  return localStorage.getItem('n8n_webhook_url') || '';
 };
 
-// Platforms API
-export const platformsApi = {
-  async getStatus(): Promise<{ platforms: PlatformStatus }> {
-    const response = await api.get('/platforms/status');
-    return response.data;
-  },
-
-  async getScheduledJobs() {
-    const response = await api.get('/platforms/scheduler/jobs');
-    return response.data;
-  },
+export const setWebhookUrl = (url: string): void => {
+  localStorage.setItem('n8n_webhook_url', url);
 };
 
-export default api;
+// --- Types ---
+
+export interface PostRecord {
+  id: string;
+  caption: string;
+  imagePreview: string;
+  imageName: string;
+  imageSize: number;
+  status: 'scheduled' | 'posted' | 'failed' | 'pending';
+  scheduledDate?: string;
+  createdAt: string;
+  platform: string;
+  webhookResponse?: string;
+}
+
+export interface LogEntry {
+  time: string;
+  message: string;
+  type: 'info' | 'success' | 'error' | 'sending';
+}
+
+// --- Submit to n8n ---
+
+export const submitPost = async (
+  data: {
+    image: File;
+    caption: string;
+    scheduledDate?: string;
+  },
+  onLog?: (entry: LogEntry) => void
+): Promise<{ status: string; [key: string]: unknown }> => {
+  const log = (message: string, type: LogEntry['type'] = 'info') => {
+    const entry: LogEntry = { time: new Date().toLocaleTimeString(), message, type };
+    console.log(`[SkynetJoe ${type.toUpperCase()}] ${message}`);
+    onLog?.(entry);
+  };
+
+  const webhookUrl = getWebhookUrl();
+  if (!webhookUrl) {
+    log('Webhook URL not configured', 'error');
+    throw new Error('Webhook URL not configured. Go to Settings to add your n8n webhook URL.');
+  }
+
+  log(`Webhook URL: ${webhookUrl}`, 'info');
+  log(`Image: ${data.image.name} (${(data.image.size / 1024 / 1024).toFixed(2)} MB)`, 'info');
+  log(`Caption: ${data.caption.length} characters`, 'info');
+  if (data.scheduledDate) {
+    log(`Scheduled for: ${new Date(data.scheduledDate).toLocaleString()}`, 'info');
+  }
+
+  // Build FormData
+  const formData = new FormData();
+  formData.append('image', data.image, data.image.name);
+  formData.append('caption', data.caption);
+  if (data.scheduledDate) {
+    formData.append('scheduledDate', data.scheduledDate);
+  }
+
+  log('Sending to n8n webhook...', 'sending');
+
+  try {
+    const startTime = Date.now();
+    const response = await fetch(webhookUrl, {
+      method: 'POST',
+      body: formData,
+    });
+    const elapsed = Date.now() - startTime;
+
+    log(`Response received in ${elapsed}ms (status ${response.status})`, 'info');
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => 'No response body');
+      log(`n8n error: ${response.status} - ${errorText}`, 'error');
+      throw new Error(
+        response.status === 404
+          ? 'Webhook not found. Make sure the n8n workflow is active.'
+          : response.status === 500
+          ? 'n8n workflow error. Check n8n execution logs for details.'
+          : `Request failed (${response.status}): ${errorText}`
+      );
+    }
+
+    // Parse response
+    const contentType = response.headers.get('content-type');
+    let result: { status: string; [key: string]: unknown };
+
+    if (contentType?.includes('application/json')) {
+      result = await response.json();
+      log(`n8n response: ${JSON.stringify(result)}`, 'success');
+    } else {
+      const text = await response.text();
+      log(`n8n response (text): ${text}`, 'success');
+      result = { status: 'ok', body: text };
+    }
+
+    if (data.scheduledDate) {
+      log('Post scheduled — n8n will publish at the scheduled time', 'success');
+    } else {
+      log('Post sent to LinkedIn via n8n', 'success');
+    }
+
+    return result;
+  } catch (error: any) {
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      log('Network error — cannot reach n8n. Is it running?', 'error');
+      throw new Error('Cannot reach n8n. Make sure your n8n instance is running and the URL is correct.');
+    }
+    throw error;
+  }
+};
+
+// --- Local Post History (localStorage) ---
+
+const STORAGE_KEY = 'skynetjoe_post_history';
+
+export const savePost = (post: PostRecord): void => {
+  const posts = getPosts();
+  posts.unshift(post);
+  // Keep only last 100 posts to avoid localStorage bloat
+  const trimmed = posts.slice(0, 100);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
+  console.log(`[SkynetJoe] Post saved to history: ${post.id} (${post.status})`);
+};
+
+export const getPosts = (): PostRecord[] => {
+  try {
+    const data = localStorage.getItem(STORAGE_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    console.error('[SkynetJoe] Failed to parse post history from localStorage');
+    return [];
+  }
+};
+
+export const deletePost = (id: string): void => {
+  const posts = getPosts().filter((p) => p.id !== id);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(posts));
+  console.log(`[SkynetJoe] Post deleted: ${id}`);
+};
+
+export const updatePostStatus = (id: string, status: PostRecord['status']): void => {
+  const posts = getPosts();
+  const post = posts.find((p) => p.id === id);
+  if (post) {
+    post.status = status;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(posts));
+    console.log(`[SkynetJoe] Post ${id} status updated to: ${status}`);
+  }
+};

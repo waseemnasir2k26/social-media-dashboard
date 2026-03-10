@@ -1,111 +1,53 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import {
-  Twitter,
   Linkedin,
-  Facebook,
-  Instagram,
-  Youtube,
   CheckCircle,
   XCircle,
   Clock,
-  Filter,
-  Send,
   Trash2,
-  Loader2,
+  Filter,
+  Calendar,
+  Send,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
-import { postsApi, Post } from '../services/api';
-import { format } from 'date-fns';
-
-const platformIcons: Record<string, typeof Twitter> = {
-  twitter: Twitter,
-  linkedin: Linkedin,
-  facebook: Facebook,
-  instagram_1: Instagram,
-  instagram_2: Instagram,
-  youtube: Youtube,
-};
-
-const platformLabels: Record<string, string> = {
-  twitter: 'Twitter',
-  linkedin: 'LinkedIn',
-  facebook: 'Facebook',
-  instagram_1: 'IG 1',
-  instagram_2: 'IG 2',
-  youtube: 'YouTube',
-};
+import { getPosts, deletePost, PostRecord } from '../services/api';
+import { format, formatDistanceToNow } from 'date-fns';
 
 const statusFilters = [
   { value: '', label: 'All' },
-  { value: 'draft', label: 'Draft' },
   { value: 'scheduled', label: 'Scheduled' },
   { value: 'posted', label: 'Posted' },
   { value: 'failed', label: 'Failed' },
 ];
 
 export default function PostHistory() {
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [posts, setPosts] = useState<PostRecord[]>([]);
   const [statusFilter, setStatusFilter] = useState('');
-  const [selectedPost, setSelectedPost] = useState<Post | null>(null);
-  const [publishing, setPublishing] = useState<number | null>(null);
-  const [deleting, setDeleting] = useState<number | null>(null);
+  const [expandedPost, setExpandedPost] = useState<string | null>(null);
 
   useEffect(() => {
-    loadPosts();
-  }, [statusFilter]);
+    setPosts(getPosts());
+    console.log('[SkynetJoe] Queue loaded. Posts:', getPosts().length);
+  }, []);
 
-  async function loadPosts() {
-    setLoading(true);
-    try {
-      const result = await postsApi.list({
-        status: statusFilter || undefined,
-        limit: 100,
-      });
-      setPosts(result.posts);
-    } catch (error) {
-      console.error('Failed to load posts:', error);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const filteredPosts = statusFilter
+    ? posts.filter((p) => p.status === statusFilter)
+    : posts;
 
-  async function handlePublish(postId: number, e: React.MouseEvent) {
+  const handleDelete = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setPublishing(postId);
-    try {
-      const result = await postsApi.publish(postId);
-      if (result.success) {
-        toast.success('Posted successfully!');
-      } else {
-        toast.error(result.post.error_message || 'Some platforms failed');
-      }
-      loadPosts();
-    } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Failed to publish');
-    } finally {
-      setPublishing(null);
-    }
-  }
+    if (!confirm('Delete this post from history?')) return;
+    deletePost(id);
+    setPosts(getPosts());
+    toast.success('Post removed');
+  };
 
-  async function handleDelete(postId: number, e: React.MouseEvent) {
-    e.stopPropagation();
-    if (!confirm('Are you sure you want to delete this post?')) return;
-
-    setDeleting(postId);
-    try {
-      await postsApi.delete(postId);
-      toast.success('Post deleted');
-      loadPosts();
-      if (selectedPost?.id === postId) {
-        setSelectedPost(null);
-      }
-    } catch (error) {
-      toast.error('Failed to delete post');
-    } finally {
-      setDeleting(null);
-    }
-  }
+  const toggleExpand = (id: string) => {
+    setExpandedPost(expandedPost === id ? null : id);
+  };
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -120,344 +62,245 @@ export default function PostHistory() {
     }
   };
 
+  const getStatusBadge = (status: string) => {
+    const styles: Record<string, string> = {
+      posted: 'bg-green-100 text-green-700',
+      scheduled: 'bg-blue-100 text-blue-700',
+      failed: 'bg-red-100 text-red-700',
+      pending: 'bg-gray-100 text-gray-600',
+    };
+    return (
+      <span
+        className={`px-2.5 py-1 rounded-full text-xs font-medium ${styles[status] || styles.pending}`}
+      >
+        {status.charAt(0).toUpperCase() + status.slice(1)}
+      </span>
+    );
+  };
+
+  const scheduledCount = posts.filter(
+    (p) => p.status === 'scheduled'
+  ).length;
+  const postedCount = posts.filter((p) => p.status === 'posted').length;
+
   return (
     <div className="p-8">
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Post History</h1>
-          <p className="text-gray-500 mt-1">View all your posts and their status</p>
+          <h1 className="text-2xl font-bold text-gray-900">Post Queue</h1>
+          <p className="text-gray-500 mt-1">
+            {posts.length === 0
+              ? 'No posts yet'
+              : `${postedCount} posted, ${scheduledCount} scheduled`}
+          </p>
         </div>
-
-        {/* Filter */}
-        <div className="flex items-center gap-2">
-          <Filter className="w-5 h-5 text-gray-400" />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="input w-40"
-          >
-            {statusFilters.map((filter) => (
-              <option key={filter.value} value={filter.value}>
-                {filter.label}
-              </option>
-            ))}
-          </select>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <Filter className="w-5 h-5 text-gray-400" />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="input w-40"
+            >
+              {statusFilters.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <Link to="/create" className="btn btn-primary flex items-center gap-2">
+            <Send className="w-4 h-4" />
+            New Post
+          </Link>
         </div>
       </div>
 
-      {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
-        </div>
-      ) : posts.length === 0 ? (
-        <div className="card text-center py-12">
-          <p className="text-gray-500">No posts found</p>
-        </div>
-      ) : (
-        <div className="card overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b">
-              <tr>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
-                  Status
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
-                  Content
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
-                  Platforms
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
-                  Date
-                </th>
-                <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {posts.map((post) => (
-                <tr
-                  key={post.id}
-                  className="hover:bg-gray-50 cursor-pointer"
-                  onClick={() => setSelectedPost(post)}
-                >
-                  <td className="px-4 py-4">
-                    <div className="flex items-center gap-2">
-                      {getStatusIcon(post.status)}
-                      <span
-                        className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          post.status === 'posted'
-                            ? 'bg-green-100 text-green-700'
-                            : post.status === 'failed'
-                            ? 'bg-red-100 text-red-700'
-                            : post.status === 'scheduled'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-gray-100 text-gray-600'
-                        }`}
-                      >
-                        {post.status}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-4">
-                    <p className="text-sm text-gray-900 line-clamp-2 max-w-md">
-                      {post.content.substring(0, 100)}
-                      {post.content.length > 100 && '...'}
-                    </p>
-                  </td>
-                  <td className="px-4 py-4">
-                    <div className="flex gap-1">
-                      {post.platforms.map((platform) => {
-                        const Icon = platformIcons[platform];
-                        const isPosted = post.posted_ids?.[platform];
-                        return Icon ? (
-                          <div
-                            key={platform}
-                            className={`p-1 rounded ${
-                              isPosted ? 'text-green-600' : 'text-gray-400'
-                            }`}
-                            title={`${platformLabels[platform] || platform}: ${isPosted ? 'Posted' : 'Not posted'}`}
-                          >
-                            <Icon className="w-4 h-4" />
-                          </div>
-                        ) : null;
-                      })}
-                    </div>
-                  </td>
-                  <td className="px-4 py-4">
-                    <p className="text-sm text-gray-600">
-                      {format(new Date(post.created_at), 'MMM d, yyyy')}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      {format(new Date(post.created_at), 'h:mm a')}
-                    </p>
-                  </td>
-                  <td className="px-4 py-4">
-                    <div className="flex gap-2">
-                      {(post.status === 'draft' || post.status === 'failed') && (
-                        <button
-                          onClick={(e) => handlePublish(post.id, e)}
-                          disabled={publishing === post.id}
-                          className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="Publish now"
-                        >
-                          {publishing === post.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                          ) : (
-                            <Send className="w-4 h-4" />
-                          )}
-                        </button>
-                      )}
-                      <button
-                        onClick={(e) => handleDelete(post.id, e)}
-                        disabled={deleting === post.id}
-                        className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Delete"
-                      >
-                        {deleting === post.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="w-4 h-4" />
-                        )}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Quick stats */}
+      {posts.length > 0 && (
+        <div className="grid grid-cols-3 gap-4 mb-6">
+          <div className="card py-4">
+            <div className="flex items-center gap-3">
+              <CheckCircle className="w-5 h-5 text-green-500" />
+              <div>
+                <p className="text-lg font-bold text-gray-900">
+                  {postedCount}
+                </p>
+                <p className="text-xs text-gray-500">Posted</p>
+              </div>
+            </div>
+          </div>
+          <div className="card py-4">
+            <div className="flex items-center gap-3">
+              <Clock className="w-5 h-5 text-blue-500" />
+              <div>
+                <p className="text-lg font-bold text-gray-900">
+                  {scheduledCount}
+                </p>
+                <p className="text-xs text-gray-500">Scheduled</p>
+              </div>
+            </div>
+          </div>
+          <div className="card py-4">
+            <div className="flex items-center gap-3">
+              <XCircle className="w-5 h-5 text-red-500" />
+              <div>
+                <p className="text-lg font-bold text-gray-900">
+                  {posts.filter((p) => p.status === 'failed').length}
+                </p>
+                <p className="text-xs text-gray-500">Failed</p>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Post Detail Modal */}
-      {selectedPost && (
-        <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-          onClick={() => setSelectedPost(null)}
-        >
-          <div
-            className="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-auto"
-            onClick={(e) => e.stopPropagation()}
+      {filteredPosts.length === 0 ? (
+        <div className="card text-center py-16">
+          <Calendar className="w-14 h-14 text-gray-200 mx-auto mb-4" />
+          <p className="text-gray-500 text-lg mb-2">
+            {statusFilter
+              ? `No ${statusFilter} posts`
+              : 'No posts yet'}
+          </p>
+          <p className="text-gray-400 text-sm mb-6">
+            Create a post and it will show up here
+          </p>
+          <Link
+            to="/create"
+            className="btn btn-primary inline-flex items-center gap-2"
           >
-            <div className="p-6 border-b flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Post Details</h2>
-              <span
-                className={`px-3 py-1 rounded-full text-sm font-medium ${
-                  selectedPost.status === 'posted'
-                    ? 'bg-green-100 text-green-700'
-                    : selectedPost.status === 'failed'
-                    ? 'bg-red-100 text-red-700'
-                    : selectedPost.status === 'scheduled'
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'bg-gray-100 text-gray-600'
-                }`}
+            <Send className="w-4 h-4" />
+            Create Post
+          </Link>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredPosts.map((post) => {
+            const isExpanded = expandedPost === post.id;
+            return (
+              <div
+                key={post.id}
+                className="card hover:shadow-md transition-shadow cursor-pointer"
+                onClick={() => toggleExpand(post.id)}
               >
-                {selectedPost.status}
-              </span>
-            </div>
-
-            <div className="p-6 space-y-4">
-              {/* Content */}
-              <div>
-                <label className="block text-sm font-medium text-gray-500 mb-2">
-                  Content
-                </label>
-                <div className="bg-gray-50 rounded-lg p-4">
-                  <p className="text-gray-900 whitespace-pre-wrap text-sm">
-                    {selectedPost.content}
-                  </p>
-                </div>
-              </div>
-
-              {/* Image */}
-              {selectedPost.image_url && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-2">
-                    Image
-                  </label>
-                  <img
-                    src={selectedPost.image_url}
-                    alt="Post image"
-                    className="max-w-sm rounded-lg shadow-sm"
-                  />
-                </div>
-              )}
-
-              {/* Video */}
-              {selectedPost.video_url && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-2">
-                    Video URL
-                  </label>
-                  <a
-                    href={selectedPost.video_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:underline text-sm"
-                  >
-                    {selectedPost.video_url}
-                  </a>
-                </div>
-              )}
-
-              {/* Meta Info */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">
-                    Word Count
-                  </label>
-                  <p>{selectedPost.word_count} words</p>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-500 mb-1">
-                    Created
-                  </label>
-                  <p>
-                    {format(new Date(selectedPost.created_at), 'MMM d, yyyy h:mm a')}
-                  </p>
-                </div>
-                {selectedPost.posted_time && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-500 mb-1">
-                      Posted
-                    </label>
-                    <p>
-                      {format(
-                        new Date(selectedPost.posted_time),
-                        'MMM d, yyyy h:mm a'
-                      )}
-                    </p>
-                  </div>
-                )}
-                {selectedPost.scheduled_time && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-500 mb-1">
-                      Scheduled For
-                    </label>
-                    <p>
-                      {format(
-                        new Date(selectedPost.scheduled_time),
-                        'MMM d, yyyy h:mm a'
-                      )}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              {/* Platform Results */}
-              <div>
-                <label className="block text-sm font-medium text-gray-500 mb-2">
-                  Platforms
-                </label>
-                <div className="space-y-2">
-                  {selectedPost.platforms.map((platform) => {
-                    const Icon = platformIcons[platform];
-                    const postId = selectedPost.posted_ids?.[platform];
-                    return (
-                      <div
-                        key={platform}
-                        className="flex items-center gap-3 p-2 bg-gray-50 rounded-lg"
-                      >
-                        {Icon && <Icon className="w-5 h-5" />}
-                        <span className="flex-1">{platformLabels[platform] || platform}</span>
-                        {selectedPost.status === 'posted' || selectedPost.status === 'failed' ? (
-                          postId ? (
-                            <span className="text-sm text-green-600 flex items-center gap-1">
-                              <CheckCircle className="w-4 h-4" />
-                              Posted
+                <div className="flex gap-4">
+                  {post.imagePreview && (
+                    <img
+                      src={post.imagePreview}
+                      alt=""
+                      className="w-16 h-16 rounded-lg object-cover flex-shrink-0"
+                    />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-gray-900 text-sm truncate">
+                          {post.caption}
+                        </p>
+                        <div className="flex items-center gap-3 mt-2 flex-wrap">
+                          {getStatusIcon(post.status)}
+                          {getStatusBadge(post.status)}
+                          <div className="flex items-center gap-1">
+                            <Linkedin className="w-3.5 h-3.5 text-blue-700" />
+                            <span className="text-xs text-gray-500">
+                              LinkedIn
                             </span>
-                          ) : (
-                            <span className="text-sm text-red-600 flex items-center gap-1">
-                              <XCircle className="w-4 h-4" />
-                              Failed
-                            </span>
-                          )
+                          </div>
+                          {post.scheduledDate &&
+                            post.status === 'scheduled' && (
+                              <span className="text-xs text-blue-600 font-medium">
+                                {formatDistanceToNow(
+                                  new Date(post.scheduledDate),
+                                  { addSuffix: true }
+                                )}
+                              </span>
+                            )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <span className="text-xs text-gray-400">
+                          {format(
+                            new Date(post.createdAt),
+                            'MMM d, h:mm a'
+                          )}
+                        </span>
+                        <button
+                          onClick={(e) => handleDelete(post.id, e)}
+                          className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                        {isExpanded ? (
+                          <ChevronUp className="w-4 h-4 text-gray-400" />
                         ) : (
-                          <span className="text-sm text-gray-400">Pending</span>
+                          <ChevronDown className="w-4 h-4 text-gray-400" />
                         )}
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Error Message */}
-              {selectedPost.error_message && (
-                <div>
-                  <label className="block text-sm font-medium text-red-500 mb-2">
-                    Error
-                  </label>
-                  <div className="bg-red-50 border border-red-200 rounded-lg p-3">
-                    <p className="text-red-700 text-sm">
-                      {selectedPost.error_message}
-                    </p>
+                    </div>
                   </div>
                 </div>
-              )}
-            </div>
 
-            <div className="p-6 border-t flex gap-3">
-              {(selectedPost.status === 'draft' || selectedPost.status === 'failed') && (
-                <button
-                  onClick={(e) => {
-                    handlePublish(selectedPost.id, e);
-                    setSelectedPost(null);
-                  }}
-                  className="btn btn-primary flex items-center gap-2"
-                >
-                  <Send className="w-4 h-4" />
-                  Publish Now
-                </button>
-              )}
-              <button
-                onClick={() => setSelectedPost(null)}
-                className="btn btn-secondary"
-              >
-                Close
-              </button>
-            </div>
-          </div>
+                {/* Expanded details */}
+                {isExpanded && (
+                  <div className="mt-4 pt-4 border-t border-gray-100">
+                    <div className="bg-gray-50 rounded-lg p-4 mb-3">
+                      <p className="text-sm text-gray-800 whitespace-pre-wrap">
+                        {post.caption}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <span className="text-gray-500">Image:</span>{' '}
+                        <span className="text-gray-700">
+                          {post.imageName || 'N/A'} (
+                          {post.imageSize
+                            ? `${(post.imageSize / 1024 / 1024).toFixed(1)} MB`
+                            : 'N/A'}
+                          )
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500">Platform:</span>{' '}
+                        <span className="text-gray-700">LinkedIn</span>
+                      </div>
+                      {post.scheduledDate && (
+                        <div>
+                          <span className="text-gray-500">Scheduled:</span>{' '}
+                          <span className="text-gray-700">
+                            {format(
+                              new Date(post.scheduledDate),
+                              'MMM d, yyyy h:mm a'
+                            )}
+                          </span>
+                        </div>
+                      )}
+                      <div>
+                        <span className="text-gray-500">Created:</span>{' '}
+                        <span className="text-gray-700">
+                          {format(
+                            new Date(post.createdAt),
+                            'MMM d, yyyy h:mm a'
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                    {post.webhookResponse && (
+                      <div className="mt-3">
+                        <span className="text-xs text-gray-500">
+                          n8n Response:
+                        </span>
+                        <pre className="text-xs bg-gray-900 text-green-400 p-2 rounded mt-1 overflow-x-auto">
+                          {post.webhookResponse}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
