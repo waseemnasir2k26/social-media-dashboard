@@ -204,3 +204,31 @@ The Vercel serverless version uses in-memory storage (data resets on cold starts
 ## License
 
 MIT
+
+---
+
+<!-- SEO-HIRE-ME-BLOCK -->
+
+## Hire Me
+
+> **Need a custom social media or marketing dashboard?**
+
+I'm **Waseem Nasir** — founder of [Skynet Labs / SkynetJoe](https://www.skynetjoe.com), an AI Automation Agency. OAuth-based multi-platform dashboards (LinkedIn, Twitter, Instagram, TikTok, YouTube).
+
+**50+ live projects across:** Healthcare · Legal · Real Estate · E-Commerce · Logistics · HVAC · SaaS · Consulting
+
+### Hire me
+- 📅 **[Book a free strategy call](https://calendly.com/skynetlabs/schedule-a-free-consultation)**
+- 💼 **[Hire on Fiverr](https://fiverr.com/agencies/skynetjoellc)**
+- 🌐 **[skynetjoe.com](https://www.skynetjoe.com)**
+- 📧 **info@skynetjoe.com**
+- 💬 **[WhatsApp](https://wa.me/923001001957)**
+
+### Related projects on my GitHub
+- [n8n-social-automation](https://github.com/waseemnasir2k26/n8n-social-automation)
+- [ai-motivational-posts](https://github.com/waseemnasir2k26/ai-motivational-posts)
+- [aeo-content-engine](https://github.com/waseemnasir2k26/aeo-content-engine)
+- [→ See all 50+ projects](https://github.com/waseemnasir2k26)
+
+### Tags
+`AI automation` · `n8n` · `GoHighLevel` · `Claude Code` · `Next.js` · `React` · `Python` · `freelance` · `hire me` · `agency`
