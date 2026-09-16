@@ -2,6 +2,10 @@
 
 A free, simple social media dashboard to post content across multiple platforms at once. Like Buffer, but free and self-hosted on Vercel.
 
+## Status
+
+Last reviewed: September 2026 · release v2026.09
+
 ## Supported Platforms
 
 - **Facebook Page** (1 page)
