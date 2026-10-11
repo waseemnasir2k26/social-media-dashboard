@@ -1,0 +1,4 @@
+- social-media-dashboard is a public, self-hosted multi-platform posting tool (Facebook Page, Instagram, X, YouTube, LinkedIn): FastAPI backend plus React/TypeScript/Vite frontend, with an n8n LinkedIn workflow export.
+- State: last feature work was March 2026; a Hire Me block was added 2026-04-07. No application code changed this month.
+- Reviewed October 2026: README, tree and history read; README external links (Calendly, Fiverr, platform developer consoles, cross-linked repos) return 200. The Hire Me links were updated to the current Fiverr, Upwork and Calendly URLs, and a MIT LICENSE was added because the README states MIT.
+- Known gaps: the Vercel serverless deployment uses in-memory storage so history resets on cold starts (the README suggests KV/Postgres/Supabase); no root package.json, so no version to bump; no tests or CI.

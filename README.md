@@ -4,7 +4,7 @@ A free, simple social media dashboard to post content across multiple platforms 
 
 ## Status
 
-Last reviewed: September 2026 · release v2026.09
+Last reviewed: October 2026 · release v2026.10
 
 ## Supported Platforms
 
@@ -223,7 +223,8 @@ I'm **Waseem Nasir** — founder of [Skynet Labs / SkynetJoe](https://www.skynet
 
 ### Hire me
 - 📅 **[Book a free strategy call](https://calendly.com/skynetlabs/schedule-a-free-consultation)**
-- 💼 **[Hire on Fiverr](https://fiverr.com/agencies/skynetjoellc)**
+- 💼 **[Hire on Fiverr](https://www.fiverr.com/agencies/skynetjoellc)**
+- 💼 **[Hire on Upwork](https://www.upwork.com/freelancers/muhammadwaseemnasir)**
 - 🌐 **[skynetjoe.com](https://www.skynetjoe.com)**
 - 📧 **info@skynetjoe.com**
 - 💬 **[WhatsApp](https://wa.me/923001001957)**
