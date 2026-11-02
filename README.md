@@ -45,4 +45,4 @@ For you if: you post to a handful of your own accounts and want a free, hackable
 ---
 
 Need this wired into your business? SkynetLabs builds voice agents, n8n back offices and sites that convert → https://skynetjoe.com
-Contact: info@skynetjoe.com
+Contact: waseem@skynetjoe.com
